@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Streetball Shooter - Improved</title>
+    <title>3D Streetball Shooter - Detailed Player</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
@@ -157,16 +157,17 @@
         const BALL_RADIUS = 0.24;
         const RIM_Y_POS = 3.05; 
         const RIM_Z_POS = -8; 
-        const RIM_THICKNESS = 0.02; // NEW
-        const BOUNCE_DAMPING = 0.6; // NEW - Velocity multiplier after a rim hit
+        const RIM_THICKNESS = 0.02; 
+        const BOUNCE_DAMPING = 0.6; 
 
         // Court Boundaries for fence
         const FENCE_X = 15;
         const FENCE_Z = 20;
         const FENCE_HEIGHT = 5;
 
-        // Player model settings
-        const BODY_COLOR = 0x00aaff; // Jersey color
+        // Player model constants
+        const BODY_COLOR = 0x00aaff; // Jersey color (Blue)
+        const SHORTS_COLOR = 0x0088cc; // Slightly darker blue
         const SKIN_COLOR = 0xffdbac; // Skin tone
         
         // Camera smooth follow factor
@@ -256,6 +257,7 @@
             court = new THREE.Mesh(groundGeometry, groundMaterial);
             court.rotation.x = -Math.PI / 2;
             court.position.y = -BALL_RADIUS; 
+            court.receiveShadow = true; // Ensure court receives shadows
             scene.add(court);
 
             createFences(); 
@@ -333,15 +335,17 @@
             const poleMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
             const pole = new THREE.Mesh(poleGeometry, poleMaterial);
             pole.position.set(0, poleHeight / 2 - BALL_RADIUS, RIM_Z_POS);
+            pole.castShadow = true;
             hoop.add(pole);
 
             // 3. Rim
             const rimRadius = 0.228; 
-            const rimGeometry = new THREE.TorusGeometry(rimRadius, RIM_THICKNESS / 2, 16, 50); // Using RIM_THICKNESS here
+            const rimGeometry = new THREE.TorusGeometry(rimRadius, RIM_THICKNESS / 2, 16, 50); 
             const rimMaterial = new THREE.MeshLambertMaterial({ color: 0xcc0000 });
             const rim = new THREE.Mesh(rimGeometry, rimMaterial);
             rim.rotation.x = Math.PI / 2;
             rim.position.set(0, RIM_Y_POS, RIM_Z_POS);
+            rim.castShadow = true;
             hoop.add(rim);
 
             // 4. Score detection plane (Invisible, used for scoring check)
@@ -364,12 +368,11 @@
                 color: 0xff8c00, specular: 0x222222, shininess: 30
             });
             ball = new THREE.Mesh(ballGeometry, ballMaterial);
+            ball.castShadow = true;
             scene.add(ball);
         }
 
-        /**
-         * Creates a more detailed, segmented player model.
-         */
+        // --- REVISED AND IMPROVED createPlayer() FUNCTION ---
         function createPlayer() {
             const playerGroup = new THREE.Group();
             
@@ -383,56 +386,172 @@
             
             const bodyMaterial = new THREE.MeshLambertMaterial({ color: BODY_COLOR }); 
             const skinMaterial = new THREE.MeshLambertMaterial({ color: SKIN_COLOR }); 
+            const shortsMaterial = new THREE.MeshLambertMaterial({ color: SHORTS_COLOR }); 
+            const shoeMaterial = new THREE.MeshLambertMaterial({ color: 0xcccccc }); 
+            const accessoryMaterial = new THREE.MeshLambertMaterial({ color: 0xff0000 }); // Red for accessories
 
-            // 1. Head (Sphere)
+            // 1. Head
             const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16);
             const head = new THREE.Mesh(headGeometry, skinMaterial);
             head.position.y = legHeight + torsoHeight - headRadius * 0.2; 
+            head.castShadow = true; 
             playerGroup.add(head);
 
-            // 2. Torso (Cylinder/Capsule)
-            const torsoGeometry = new THREE.CylinderGeometry(torsoRadius, torsoRadius * 0.8, torsoHeight, 16);
+            // 1.1 Beanie (Accessory)
+            const beanieGeometry = new THREE.ConeGeometry(headRadius * 1.1, headRadius * 1.2, 16);
+            const beanieMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            const beanie = new THREE.Mesh(beanieGeometry, beanieMaterial);
+            beanie.position.y = head.position.y + headRadius * 0.5;
+            beanie.castShadow = true;
+            playerGroup.add(beanie);
+
+            // 2. Torso (Body/Jersey Top)
+            const torsoGeometry = new THREE.CylinderGeometry(torsoRadius, torsoRadius * 0.9, torsoHeight, 16); // Tapered
             const torso = new THREE.Mesh(torsoGeometry, bodyMaterial);
             torso.position.y = legHeight + torsoHeight / 2; 
+            torso.castShadow = true; 
             playerGroup.add(torso);
-
-            // 3. Arms (Cylinders)
-            const armGeometry = new THREE.CylinderGeometry(limbWidth * 0.8, limbWidth * 0.8, armLength, 8);
             
-            // Right Arm
-            const rightArm = new THREE.Mesh(armGeometry, bodyMaterial);
-            rightArm.rotation.z = Math.PI / 2;
-            rightArm.position.set(torsoRadius + armLength / 2, legHeight + torsoHeight * 0.8, 0);
-            playerGroup.add(rightArm);
+            // 2.1 Jersey Number (Simple Plane)
+            const numberPlane = new THREE.PlaneGeometry(torsoRadius * 0.8, torsoRadius * 0.8);
+            // In a real app, this would use a texture. Here, we use a simple white material.
+            const numberMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }); 
+            const numberMesh = new THREE.Mesh(numberPlane, numberMaterial);
+            numberMesh.rotation.y = Math.PI; // Face outwards (towards the camera initially)
+            numberMesh.position.set(0, legHeight + torsoHeight * 0.7, torsoRadius * 0.95);
+            playerGroup.add(numberMesh);
 
-            // Left Arm
-            const leftArm = new THREE.Mesh(armGeometry, bodyMaterial);
-            leftArm.rotation.z = -Math.PI / 2;
-            leftArm.position.set(-(torsoRadius + armLength / 2), legHeight + torsoHeight * 0.8, 0);
-            playerGroup.add(leftArm);
+            // 3. Arms (Articulated for better posing)
+            const upperArmLength = armLength * 0.5;
+            const lowerArmLength = armLength * 0.5;
+            const upperArmGeometry = new THREE.CylinderGeometry(limbWidth * 0.8, limbWidth * 0.8, upperArmLength, 8);
+            const lowerArmGeometry = new THREE.CylinderGeometry(limbWidth * 0.7, limbWidth * 0.7, lowerArmLength, 8);
+            const handGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1); 
 
-            // 4. Legs (Cylinders)
-            const legGeometry = new THREE.CylinderGeometry(limbWidth, limbWidth, legHeight, 8);
-            const shortsMaterial = new THREE.MeshLambertMaterial({ color: BODY_COLOR * 0.8 }); // Darker uniform bottom
+            // Right Arm Group (Shoulder at origin of group)
+            const rightArmGroup = new THREE.Group();
+            
+            // Upper Arm (Jersey color)
+            const rightUpperArm = new THREE.Mesh(upperArmGeometry, bodyMaterial);
+            rightUpperArm.position.x = upperArmLength / 2; 
+            rightUpperArm.rotation.z = Math.PI / 2;
+            rightArmGroup.add(rightUpperArm);
 
+            // Lower Arm (Skin color, attached to the end of upper arm)
+            const rightLowerArm = new THREE.Mesh(lowerArmGeometry, skinMaterial);
+            rightLowerArm.position.x = upperArmLength + lowerArmLength / 2; 
+            rightLowerArm.rotation.z = Math.PI / 2;
+            rightArmGroup.add(rightLowerArm);
+            
+            // Right Hand 
+            const rightHand = new THREE.Mesh(handGeometry, skinMaterial);
+            rightHand.position.x = upperArmLength + lowerArmLength + 0.05; 
+            rightArmGroup.add(rightHand);
+            
+            // Wristband (Accessory)
+            const wristbandGeometry = new THREE.TorusGeometry(limbWidth * 0.7, 0.02, 8, 16);
+            const rightWristband = new THREE.Mesh(wristbandGeometry, accessoryMaterial);
+            rightWristband.rotation.y = Math.PI / 2;
+            rightWristband.position.x = upperArmLength + lowerArmLength;
+            rightArmGroup.add(rightWristband);
+
+            // Position the whole arm relative to the torso
+            rightArmGroup.position.set(torsoRadius, legHeight + torsoHeight * 0.7, 0); 
+            playerGroup.add(rightArmGroup);
+
+            // Left Arm Group
+            const leftArmGroup = new THREE.Group();
+            
+            const leftUpperArm = new THREE.Mesh(upperArmGeometry, bodyMaterial);
+            leftUpperArm.position.x = -upperArmLength / 2; 
+            leftUpperArm.rotation.z = -Math.PI / 2;
+            leftArmGroup.add(leftUpperArm);
+
+            const leftLowerArm = new THREE.Mesh(lowerArmGeometry, skinMaterial);
+            leftLowerArm.position.x = -(upperArmLength + lowerArmLength / 2); 
+            leftLowerArm.rotation.z = -Math.PI / 2;
+            leftArmGroup.add(leftLowerArm);
+            
+            const leftHand = new THREE.Mesh(handGeometry, skinMaterial);
+            leftHand.position.x = -(upperArmLength + lowerArmLength + 0.05);
+            leftArmGroup.add(leftHand);
+
+            leftArmGroup.position.set(-torsoRadius, legHeight + torsoHeight * 0.7, 0);
+            playerGroup.add(leftArmGroup);
+
+            // 4. Legs (Articulated with Shorts and Knees)
+            const upperLegLength = legHeight * 0.5;
+            const lowerLegLength = legHeight * 0.45;
+            const kneeRadius = limbWidth * 1.2;
+            
+            const upperLegGeometry = new THREE.CylinderGeometry(torsoRadius * 0.6, limbWidth, upperLegLength, 12); // Tapered upper leg/shorts
+            const lowerLegGeometry = new THREE.CylinderGeometry(limbWidth, limbWidth, lowerLegLength, 8); 
+            const kneeGeometry = new THREE.SphereGeometry(kneeRadius, 8, 8);
+            
             // Right Leg
-            const rightLeg = new THREE.Mesh(legGeometry, shortsMaterial);
-            rightLeg.position.set(torsoRadius * 0.4, legHeight / 2, 0);
-            playerGroup.add(rightLeg);
+            const rightLegGroup = new THREE.Group();
+            
+            // Upper Leg / Shorts
+            const rightUpperLeg = new THREE.Mesh(upperLegGeometry, shortsMaterial);
+            rightUpperLeg.position.y = upperLegLength / 2; 
+            rightLegGroup.add(rightUpperLeg);
+
+            // Knee
+            const rightKnee = new THREE.Mesh(kneeGeometry, skinMaterial);
+            rightKnee.position.y = upperLegLength;
+            rightLegGroup.add(rightKnee);
+
+            // Lower Leg
+            const rightLowerLeg = new THREE.Mesh(lowerLegGeometry, skinMaterial);
+            rightLowerLeg.position.y = upperLegLength + lowerLegLength / 2;
+            rightLegGroup.add(rightLowerLeg);
+
+            rightLegGroup.position.set(torsoRadius * 0.4, 0, 0);
+            playerGroup.add(rightLegGroup);
 
             // Left Leg
-            const leftLeg = new THREE.Mesh(legGeometry, shortsMaterial);
-            leftLeg.position.set(-torsoRadius * 0.4, legHeight / 2, 0);
-            playerGroup.add(leftLeg);
+            const leftLegGroup = new THREE.Group();
+            
+            const leftUpperLeg = new THREE.Mesh(upperLegGeometry, shortsMaterial);
+            leftUpperLeg.position.y = upperLegLength / 2; 
+            leftLegGroup.add(leftUpperLeg);
+
+            const leftKnee = new THREE.Mesh(kneeGeometry, skinMaterial);
+            leftKnee.position.y = upperLegLength;
+            leftLegGroup.add(leftKnee);
+
+            const leftLowerLeg = new THREE.Mesh(lowerLegGeometry, skinMaterial);
+            leftLowerLeg.position.y = upperLegLength + lowerLegLength / 2;
+            leftLegGroup.add(leftLowerLeg);
+
+            leftLegGroup.position.set(-torsoRadius * 0.4, 0, 0);
+            playerGroup.add(leftLegGroup);
+            
+            // --- Shoes (Attached directly to playerGroup, below the legs) ---
+            const shoeGeometry = new THREE.BoxGeometry(limbWidth * 2, 0.15, limbWidth * 3);
+            
+            const rightShoe = new THREE.Mesh(shoeGeometry, shoeMaterial);
+            rightShoe.position.set(torsoRadius * 0.4, legHeight * 0.05, 0.1); 
+            rightShoe.castShadow = true;
+            playerGroup.add(rightShoe);
+            
+            const leftShoe = new THREE.Mesh(shoeGeometry, shoeMaterial);
+            leftShoe.position.set(-torsoRadius * 0.4, legHeight * 0.05, 0.1);
+            leftShoe.castShadow = true;
+            playerGroup.add(leftShoe);
+            // -----------------
 
             // Set player group on the court level
             playerGroup.position.set(0, -BALL_RADIUS, 6);
-            // Default player rotation to face the hoop (-Z)
-            playerGroup.rotation.y = Math.PI;
             player = playerGroup;
+            player.castShadow = true; 
+            player.rotation.y = Math.PI; 
             scene.add(player);
         }
 
+        // --- Rest of the Functions (createHoop, createBall, resetBall, launchBall, updateBall, etc.) ---
+        // (No changes needed in these sections unless noted)
+        // ... (The rest of the game code is placed here) ...
 
         function resetBall() {
             ballVelocity.set(0, 0, 0);
@@ -444,8 +563,6 @@
             
             updateMovementAndDribble(); 
         }
-
-        // --- SHOOT FUNCTION ---
 
         /**
          * Launches the ball with velocity determined by the charge power and calculated trajectory.
@@ -483,37 +600,23 @@
             
             // 2. Determine Ideal Launch Velocity based on a target apex height
             
-            // Higher apex for longer shots, scaled to be slightly lower than player launch height + distance factor
             const APEX_HEIGHT = 4.0 + Math.min(3.0, distXZ * 0.6); 
             const targetY = target.y;
             const startY = shotStart.y;
             const gravityMag = -GRAVITY.y;
 
-            // Vertical velocity (Vy) needed to reach APEX_HEIGHT
             let vy_ideal = Math.sqrt(2 * gravityMag * (APEX_HEIGHT - startY));
-
-            // Time to reach apex (t_apex = vy/|g|)
             let t_apex = vy_ideal / gravityMag;
-
-            // Time from apex to target height (t_fall = sqrt(2 * (ApexY - TargetY) / |g|))
             let t_fall = Math.sqrt(2 * (APEX_HEIGHT - targetY) / gravityMag);
-
-            // Total time of flight (t_flight = t_apex + t_fall)
             let t_flight = t_apex + t_fall;
-
-            // Horizontal velocity required (Vxz = distXZ / t_flight)
             let vxz_ideal = distXZ / t_flight;
             
             // 3. Apply Power and Error
             const idealPower = 1.0;
             const powerError = power - idealPower;
             const errorFactor = Math.abs(powerError);
-
-            // Velocity Scaling: Scale the trajectory. Overcharge is faster/flatter; undercharge is slower/higher.
-            // Scale velocity less aggressively than 1:1, otherwise shots fly too far/short.
             const vScale = 1.0 + powerError * 0.5; 
 
-            // Calculate ideal velocity components
             let vx_ideal = delta.x / distXZ * vxz_ideal;
             let vz_ideal = delta.z / distXZ * vxz_ideal;
             
@@ -522,129 +625,17 @@
             ballVelocity.y = vy_ideal * vScale;
             
             // Positional Error (Drift)
-            // Difficulty is scaled by distance: longer shots amplify error.
             const difficultyScale = Math.min(3.0, distXZ / 4); 
 
-            // Introduce lateral error (left/right) based on power timing
-            // Random direction * Error Factor * Base Sensitivity * Difficulty Scale
             let lateralError = (Math.random() - 0.5) * errorFactor * 1.5 * difficultyScale;
             ballVelocity.x += lateralError;
 
-            // Introduce vertical error (affects distance/back/front)
-            // Only apply a small random vertical error based on the timing error.
             let verticalError = (Math.random() - 0.5) * errorFactor * 0.2 * difficultyScale;
             ballVelocity.y += verticalError; 
 
-            // Ensure the Z component is negative (shooting towards the hoop at Z=-8)
             ballVelocity.z = -Math.abs(ballVelocity.z); 
         }
 
-        // --- Core Initialization ---
-
-        function init() {
-            const container = document.getElementById('game-container');
-            const width = container.clientWidth;
-            const height = container.clientHeight;
-
-            // Scene and Renderer
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x1a1a2e); 
-
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(width, height);
-            renderer.shadowMap.enabled = true;
-            container.appendChild(renderer.domElement);
-            
-            // Camera
-            camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 100);
-            camera.position.set(0, 2.5, 9); 
-
-            // Lighting
-            const ambientLight = new THREE.AmbientLight(0x404040, 3);
-            scene.add(ambientLight);
-
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
-            directionalLight.position.set(5, 15, 10);
-            directionalLight.castShadow = true;
-            scene.add(directionalLight);
-
-            // Game Objects
-            createCourt();
-            createHoop();
-            createPlayer();
-            createBall();
-            resetBall(); 
-
-            // Event Listeners
-            window.addEventListener('resize', onWindowResize);
-            window.addEventListener('keydown', handleKeyDown);
-            window.addEventListener('keyup', handleKeyUp);
-
-            animate();
-        }
-
-        // --- Input and Movement ---
-
-        function handleKeyDown(event) {
-            const key = event.key.toLowerCase();
-            
-            if (isShooting) return;
-
-            // W, A, S, D movement
-            if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
-                keysPressed[key] = true;
-                updateMessage("Dribbling!");
-            }
-            
-            // E - Charge shot
-            if (key === 'e' && !isCharging) {
-                isCharging = true;
-                chargeStartTime = performance.now();
-                document.getElementById('shot-meter-container').style.display = 'block';
-                updateMessage("Charging Shot...");
-            }
-        }
-
-        function handleKeyUp(event) {
-            const key = event.key.toLowerCase();
-            
-            // W, A, S, D movement stop
-            if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
-                keysPressed[key] = false;
-            }
-
-            // E - Release shot
-            if (key === 'e' && isCharging) {
-                isCharging = false;
-                document.getElementById('shot-meter-container').style.display = 'none';
-
-                const chargeDuration = (performance.now() - chargeStartTime) / 1000;
-                const power = chargeDuration / MAX_CHARGE_TIME;
-                
-                let message = "Shot Fired!";
-
-                // GREEN ZONE CHECK (0.9 to 1.1 is the ideal range)
-                if (power >= 0.9 && power <= 1.1) { 
-                    isGuaranteedShot = true;
-                    message = "👑 GREAT RELEASE! SWISH! 👑";
-                } else {
-                    isGuaranteedShot = false;
-                    if (power > 1.1) {
-                        message = "Too long! Overcharged Shot.";
-                    } else {
-                        message = "Too short! Undercharged Shot.";
-                    }
-                }
-
-                launchBall(power); 
-                updateMessage(message);
-            }
-            
-            // If no movement keys are pressed, update message to ready state
-            if (!isShooting && !isCharging && !keysPressed.w && !keysPressed.a && !keysPressed.d && !keysPressed.s) {
-                updateMessage("Ready to shoot! Hold and Release E!");
-            }
-        }
 
         function updateMovementAndDribble() {
             gameClock += TIME_STEP;
@@ -807,36 +798,30 @@
                     updateMessage("Clank! Off the glass.");
                 }
 
-                // 4.1 RIM COLLISION CHECK (Torus Approximation) (NEW)
+                // 4.1 RIM COLLISION CHECK (Torus Approximation)
                 const rimCenter = new THREE.Vector3(0, RIM_Y_POS, RIM_Z_POS);
                 const rimToBall = new THREE.Vector3().subVectors(ball.position, rimCenter);
 
-                // Check if the ball is near the rim's height plane
                 if (Math.abs(rimToBall.y) < BALL_RADIUS + RIM_THICKNESS / 2) {
                     const distanceXZ = Math.sqrt(rimToBall.x * rimToBall.x + rimToBall.z * rimToBall.z);
                     
-                    // Check if ball is close enough to the rim radius projection
                     if (distanceXZ < rimRadius + BALL_RADIUS) {
                         
-                        // Calculate the vector to the closest point on the rim circle (in XZ)
                         const rimPointXZ = rimToBall.clone();
                         rimPointXZ.y = 0; 
                         rimPointXZ.normalize().multiplyScalar(rimRadius);
 
-                        // Closest point on the actual rim (in 3D space)
                         const closestRimPoint = new THREE.Vector3(rimPointXZ.x, ball.position.y, rimPointXZ.z);
                         closestRimPoint.add(rimCenter); 
-                        closestRimPoint.y = RIM_Y_POS; // Clamp Y to rim height for simpler normal calculation
+                        closestRimPoint.y = RIM_Y_POS; 
 
                         const normal = new THREE.Vector3().subVectors(ball.position, closestRimPoint).normalize();
                         const distance = ball.position.distanceTo(closestRimPoint);
 
                         if (distance < BALL_RADIUS + RIM_THICKNESS) {
-                            // Resolve intersection (push ball out)
                             const penetration = BALL_RADIUS + RIM_THICKNESS - distance;
                             ball.position.add(normal.clone().multiplyScalar(penetration));
 
-                            // Reflect velocity (Bounce: v_new = v_old - 2 * (v_old . n) * n)
                             const dot = ballVelocity.dot(normal);
                             const reflection = normal.clone().multiplyScalar(2 * dot);
                             ballVelocity.sub(reflection).multiplyScalar(BOUNCE_DAMPING); 
@@ -871,10 +856,9 @@
                 ball.position.y = BALL_RADIUS;
 
                 // Dynamic Dampening
-                const BOUNCE_DAMPENING_Y = 0.5; // Base Coefficient of Restitution
-                const FRICTION = 0.85; // Base friction
+                const BOUNCE_DAMPENING_Y = 0.5; 
+                const FRICTION = 0.85; 
 
-                // Apply slightly more dampening on hard, high-velocity hits
                 let actualDampening = BOUNCE_DAMPENING_Y; 
                 if (Math.abs(ballVelocity.y) > 10) { 
                     actualDampening = 0.4;
@@ -906,7 +890,6 @@
                 let powerPercentage = Math.min(100, (chargeDuration / MAX_CHARGE_TIME) * 100);
                 
                 if (chargeDuration > MAX_CHARGE_TIME) {
-                    // Visual pulse for overcharge
                     const pulseFactor = 1.0 + Math.abs(Math.sin(gameClock * 15)) * 0.1; 
                     document.getElementById('shot-bar').style.width = `${100 * pulseFactor}%`;
                     document.getElementById('shot-meter-container').style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.9)';
@@ -926,6 +909,109 @@
 
             renderer.render(scene, camera);
         }
+
+        function handleKeyDown(event) {
+            const key = event.key.toLowerCase();
+            
+            if (isShooting) return;
+
+            if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+                keysPressed[key] = true;
+                updateMessage("Dribbling!");
+            }
+            
+            if (key === 'e' && !isCharging) {
+                isCharging = true;
+                chargeStartTime = performance.now();
+                document.getElementById('shot-meter-container').style.display = 'block';
+                updateMessage("Charging Shot...");
+            }
+        }
+
+        function handleKeyUp(event) {
+            const key = event.key.toLowerCase();
+            
+            if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+                keysPressed[key] = false;
+            }
+
+            if (key === 'e' && isCharging) {
+                isCharging = false;
+                document.getElementById('shot-meter-container').style.display = 'none';
+
+                const chargeDuration = (performance.now() - chargeStartTime) / 1000;
+                const power = chargeDuration / MAX_CHARGE_TIME;
+                
+                let message = "Shot Fired!";
+
+                if (power >= 0.9 && power <= 1.1) { 
+                    isGuaranteedShot = true;
+                    message = "👑 GREAT RELEASE! SWISH! 👑";
+                } else {
+                    isGuaranteedShot = false;
+                    if (power > 1.1) {
+                        message = "Too long! Overcharged Shot.";
+                    } else {
+                        message = "Too short! Undercharged Shot.";
+                    }
+                }
+
+                launchBall(power); 
+                updateMessage(message);
+            }
+            
+            if (!isShooting && !isCharging && !keysPressed.w && !keysPressed.a && !keysPressed.d && !keysPressed.s) {
+                updateMessage("Ready to shoot! Hold and Release E!");
+            }
+        }
+        
+        // --- Core Initialization ---
+        function init() {
+            const container = document.getElementById('game-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e); 
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width, height);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+            container.appendChild(renderer.domElement);
+            
+            camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 100);
+            camera.position.set(0, 2.5, 9); 
+
+            const ambientLight = new THREE.AmbientLight(0x404040, 3);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+            directionalLight.position.set(5, 15, 10);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -20;
+            directionalLight.shadow.camera.right = 20;
+            directionalLight.shadow.camera.top = 20;
+            directionalLight.shadow.camera.bottom = -20;
+            scene.add(directionalLight);
+
+            createCourt();
+            createHoop();
+            createPlayer(); // The enhanced function is called here
+            createBall();
+            resetBall(); 
+
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+
+            animate();
+        }
+
 
         window.onload = init;
     </script>
