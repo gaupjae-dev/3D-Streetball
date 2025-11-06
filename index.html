@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D Streetball Shooter - Improved</title>
-    <!-- Load Three.js library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
@@ -121,7 +120,6 @@
         <div id="instructions">
             Use **W, A, S, D** to dribble and move. **HOLD E** to charge shot, **RELEASE E** to shoot!
         </div>
-        <!-- Shot Meter UI -->
         <div id="shot-meter-container">
             <div id="shot-bar"></div>
             <div id="shot-target"></div>
@@ -159,7 +157,9 @@
         const BALL_RADIUS = 0.24;
         const RIM_Y_POS = 3.05; 
         const RIM_Z_POS = -8; 
-        
+        const RIM_THICKNESS = 0.02; // NEW
+        const BOUNCE_DAMPING = 0.6; // NEW - Velocity multiplier after a rim hit
+
         // Court Boundaries for fence
         const FENCE_X = 15;
         const FENCE_Z = 20;
@@ -337,7 +337,7 @@
 
             // 3. Rim
             const rimRadius = 0.228; 
-            const rimGeometry = new THREE.TorusGeometry(rimRadius, 0.02, 16, 50);
+            const rimGeometry = new THREE.TorusGeometry(rimRadius, RIM_THICKNESS / 2, 16, 50); // Using RIM_THICKNESS here
             const rimMaterial = new THREE.MeshLambertMaterial({ color: 0xcc0000 });
             const rim = new THREE.Mesh(rimGeometry, rimMaterial);
             rim.rotation.x = Math.PI / 2;
@@ -474,7 +474,7 @@
                 return;
             }
 
-            // --- Standard Physics Launch for MISSES (IMPROVED) ---
+            // --- Standard Physics Launch for MISSES ---
             
             const shotStart = ball.position;
             const target = shotTargetPos; // Center of the rim (0, 3.05, -8)
@@ -672,9 +672,7 @@
                 player.position.z = Math.min(player.position.z, FENCE_Z - 1); // Towards the camera (Z=+20)
             }
 
-            // --- Player Rotation Logic (NEW) ---
-            // dirX: positive when pressing D (Right)
-            // dirZ: positive when pressing S (Back)
+            // --- Player Rotation Logic ---
             const dirX = (keysPressed.d ? 1 : 0) - (keysPressed.a ? 1 : 0);
             const dirZ = (keysPressed.s ? 1 : 0) - (keysPressed.w ? 1 : 0);
 
@@ -707,14 +705,14 @@
                 );
             }
 
-            // --- Camera Tracking (LERP) (NEW) ---
+            // --- Camera Tracking (LERP) ---
             // Target Z is player Z + 3 (distance behind player)
             camera.position.z += (player.position.z + 3 - camera.position.z) * CAMERA_SMOOTHNESS;
             // Target X is exactly player X
             camera.position.x += (player.position.x - camera.position.x) * CAMERA_SMOOTHNESS;
         }
 
-        // --- Game Physics ---
+        // --- Game Physics (UPDATED) ---
 
         function updateBall() {
             if (!isShooting) return;
@@ -809,7 +807,47 @@
                     updateMessage("Clank! Off the glass.");
                 }
 
-                // Score on physics path
+                // 4.1 RIM COLLISION CHECK (Torus Approximation) (NEW)
+                const rimCenter = new THREE.Vector3(0, RIM_Y_POS, RIM_Z_POS);
+                const rimToBall = new THREE.Vector3().subVectors(ball.position, rimCenter);
+
+                // Check if the ball is near the rim's height plane
+                if (Math.abs(rimToBall.y) < BALL_RADIUS + RIM_THICKNESS / 2) {
+                    const distanceXZ = Math.sqrt(rimToBall.x * rimToBall.x + rimToBall.z * rimToBall.z);
+                    
+                    // Check if ball is close enough to the rim radius projection
+                    if (distanceXZ < rimRadius + BALL_RADIUS) {
+                        
+                        // Calculate the vector to the closest point on the rim circle (in XZ)
+                        const rimPointXZ = rimToBall.clone();
+                        rimPointXZ.y = 0; 
+                        rimPointXZ.normalize().multiplyScalar(rimRadius);
+
+                        // Closest point on the actual rim (in 3D space)
+                        const closestRimPoint = new THREE.Vector3(rimPointXZ.x, ball.position.y, rimPointXZ.z);
+                        closestRimPoint.add(rimCenter); 
+                        closestRimPoint.y = RIM_Y_POS; // Clamp Y to rim height for simpler normal calculation
+
+                        const normal = new THREE.Vector3().subVectors(ball.position, closestRimPoint).normalize();
+                        const distance = ball.position.distanceTo(closestRimPoint);
+
+                        if (distance < BALL_RADIUS + RIM_THICKNESS) {
+                            // Resolve intersection (push ball out)
+                            const penetration = BALL_RADIUS + RIM_THICKNESS - distance;
+                            ball.position.add(normal.clone().multiplyScalar(penetration));
+
+                            // Reflect velocity (Bounce: v_new = v_old - 2 * (v_old . n) * n)
+                            const dot = ballVelocity.dot(normal);
+                            const reflection = normal.clone().multiplyScalar(2 * dot);
+                            ballVelocity.sub(reflection).multiplyScalar(BOUNCE_DAMPING); 
+
+                            updateMessage("💥 CLANG! Off the rim!");
+                        }
+                    }
+                }
+                // End of RIM COLLISION CHECK
+
+                // Scoring Check
                 if (distanceXZ < rimRadius && ball.position.z > RIM_Z_POS && ball.position.z + ballVelocity.z * TIME_STEP < RIM_Z_POS) {
                     if (ball.position.y > RIM_Y_POS - 0.1 && ball.position.y < RIM_Y_POS + 0.1 && ballVelocity.y < 0) {
                         
