@@ -121,7 +121,7 @@
         <div id="instructions">
             Use **W, A, S, D** to dribble and move. **HOLD E** to charge shot, **RELEASE E** to shoot!
         </div>
-        <!-- Shot Meter UI (New) -->
+        <!-- Shot Meter UI -->
         <div id="shot-meter-container">
             <div id="shot-bar"></div>
             <div id="shot-target"></div>
@@ -138,11 +138,16 @@
         const GRAVITY = new THREE.Vector3(0, -9.8, 0); // Approx gravity (m/s^2)
         const TIME_STEP = 1/60; // Fixed physics step
 
-        // New variables for Shot Meter and power
+        // State for Shot Meter and Perfect Shot Animation
         let isCharging = false;
         let chargeStartTime = 0;
-        const MAX_CHARGE_TIME = 1.5; // 1.5 seconds for full power (100% force)
-
+        const MAX_CHARGE_TIME = 1.5; // 1.5 seconds for full power
+        let isGuaranteedShot = false; 
+        let shotProgress = 0;
+        let shotStartPos = new THREE.Vector3();
+        const shotTargetPos = new THREE.Vector3(0, 3.05, -8); // Center of the rim
+        let shotDuration = 0; 
+        
         // Variables for movement and dribbling
         const PLAYER_SPEED = 0.15; 
         const DRIBBLE_HEIGHT = 0.6; 
@@ -150,18 +155,46 @@
         let keysPressed = { w: false, a: false, s: false, d: false }; 
         let gameClock = 0;
 
-        // Hoop and Ball constants (in meters, for scale)
+        // Hoop and Ball constants
         const BALL_RADIUS = 0.24;
-        const RIM_Y_POS = 3.05; // Standard hoop height
-        const RIM_Z_POS = -8; // Distance from the camera
+        const RIM_Y_POS = 3.05; 
+        const RIM_Z_POS = -8; 
         
         // Court Boundaries for fence
         const FENCE_X = 15;
         const FENCE_Z = 20;
+        const FENCE_HEIGHT = 5;
 
-        // --- Utility Functions ---
+        // Player model settings
+        const PLAYER_HEIGHT = 1.8;
+        const BODY_COLOR = 0x00aaff; // Jersey color
+        const SKIN_COLOR = 0xffdbac; // Skin tone
 
-        // Custom function to create rounded corners for the backboard (better aesthetics)
+        // --- Utility Functions (Moved up to fix ReferenceError) ---
+
+        function onWindowResize() {
+            const container = document.getElementById('game-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+
+        function updateMessage(text) {
+            document.getElementById('message').textContent = text;
+        }
+
+        function updateScore(points) {
+            score += points;
+            document.getElementById('score').textContent = `Score: ${score}`;
+            updateMessage(`SWISH! +${points} points!`);
+        }
+
+        /**
+         * Creates a rounded rectangle shape for the backboard aesthetic.
+         */
         function createRoundedRectShape( width, height, radius ) {
             const shape = new THREE.Shape();
             shape.moveTo( 0, radius );
@@ -176,9 +209,10 @@
             return shape;
         }
 
-        // --- Fence Creation (NEW) ---
+        /**
+         * Creates the tall fences around the playing area.
+         */
         function createFences() {
-            const FENCE_HEIGHT = 5;
             const FENCE_THICKNESS = 0.1;
             const fenceMaterial = new THREE.MeshLambertMaterial({ 
                 color: 0x4a4a4a, 
@@ -210,10 +244,11 @@
             scene.add(backFence);
         }
 
-        // --- Game Object Creation ---
-
+        /**
+         * Creates the court floor and markings.
+         */
         function createCourt() {
-            // 1. Ground Plane (Asphalt/Concrete look)
+            // Ground Plane
             const groundGeometry = new THREE.PlaneGeometry(30, 40);
             const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x5a5a5a });
             court = new THREE.Mesh(groundGeometry, groundMaterial);
@@ -221,22 +256,16 @@
             court.position.y = -BALL_RADIUS; 
             scene.add(court);
 
-            // Add Fences
             createFences(); 
 
-            // 2. Court Lines
+            // Court Lines
             const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
             const lineY = -BALL_RADIUS + 0.005;
 
-            // --- Three-Point Line (Arc and Wings) ---
+            // Three-Point Line Arc
             const threePtRadius = 6.75;
-            const threePtCenterZ = RIM_Z_POS; // -8
-            const wingX = 6.75; // X position for the wings
-
-            // Arc segment
             const arcShape = new THREE.Shape();
-            arcShape.absarc(0, threePtCenterZ, threePtRadius, Math.PI * 0.35, Math.PI * 0.65, true); 
-
+            arcShape.absarc(0, RIM_Z_POS, threePtRadius, Math.PI * 0.35, Math.PI * 0.65, true); 
             const arcPoints = arcShape.getPoints(50); 
             const arcGeometry = new THREE.BufferGeometry().setFromPoints(arcPoints);
             const arcMesh = new THREE.Line(arcGeometry, lineMaterial);
@@ -244,22 +273,20 @@
             arcMesh.rotation.x = Math.PI / 2;
             scene.add(arcMesh);
 
-            // Straight lines (3-point wings)
+            // Three-Point Wings
+            const wingX = 6.75; 
             const wingLineGeo = new THREE.BoxGeometry(0.1, 0.01, 12); 
-
             const leftWing = new THREE.Mesh(wingLineGeo, lineMaterial);
             leftWing.position.set(-wingX, lineY, 3); 
             scene.add(leftWing);
-
             const rightWing = new THREE.Mesh(wingLineGeo, lineMaterial);
             rightWing.position.set(wingX, lineY, 3); 
             scene.add(rightWing);
 
-            // --- Out-of-Bounds Lines (Perimeter) ---
+            // Out-of-Bounds Lines (Perimeter)
             const baseLineGeo = new THREE.BoxGeometry(30.1, 0.01, 0.1); 
             const sideLineGeo = new THREE.BoxGeometry(0.1, 0.01, 40);
 
-            // Sidelines
             const leftSide = new THREE.Mesh(sideLineGeo, lineMaterial);
             leftSide.position.set(-FENCE_X, lineY, 0);
             scene.add(leftSide);
@@ -268,7 +295,6 @@
             rightSide.position.set(FENCE_X, lineY, 0);
             scene.add(rightSide);
 
-            // Baselines
             const frontBase = new THREE.Mesh(baseLineGeo, lineMaterial); 
             frontBase.position.set(0, lineY, FENCE_Z);
             scene.add(frontBase);
@@ -278,6 +304,9 @@
             scene.add(backBase);
         }
 
+        /**
+         * Creates the hoop structure (backboard, pole, rim).
+         */
         function createHoop() {
             hoop = new THREE.Group();
 
@@ -285,12 +314,9 @@
             const boardWidth = 1.8;
             const boardHeight = 1.05;
             const boardThickness = 0.05;
-
             const backboardShape = createRoundedRectShape(boardWidth, boardHeight, 0.1);
             const backboardGeometry = new THREE.ExtrudeGeometry(backboardShape, {
-                steps: 1,
-                depth: boardThickness,
-                bevelEnabled: false
+                steps: 1, depth: boardThickness, bevelEnabled: false
             });
             backboardGeometry.center();
             const backboardMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
@@ -316,12 +342,13 @@
             rim.position.set(0, RIM_Y_POS, RIM_Z_POS);
             hoop.add(rim);
 
-            // 4. Score detection plane (Invisible for scoring check)
+            // 4. Score detection plane (Invisible, used for scoring check)
+            const rimTolerance = 0.1;
             const scorePlaneGeometry = new THREE.PlaneGeometry(rimRadius * 2, rimRadius * 2);
             const scorePlaneMaterial = new THREE.MeshBasicMaterial({ visible: false }); 
             const scorePlane = new THREE.Mesh(scorePlaneGeometry, scorePlaneMaterial);
             scorePlane.rotation.x = -Math.PI / 2;
-            scorePlane.position.set(0, RIM_Y_POS - 0.1, RIM_Z_POS); 
+            scorePlane.position.set(0, RIM_Y_POS - rimTolerance, RIM_Z_POS); 
             scorePlane.userData.isScorePlane = true;
             hoop.add(scorePlane);
 
@@ -332,36 +359,71 @@
         function createBall() {
             const ballGeometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
             const ballMaterial = new THREE.MeshPhongMaterial({
-                color: 0xff8c00, 
-                specular: 0x222222,
-                shininess: 30
+                color: 0xff8c00, specular: 0x222222, shininess: 30
             });
             ball = new THREE.Mesh(ballGeometry, ballMaterial);
             scene.add(ball);
         }
 
+        /**
+         * Creates a more detailed, segmented player model.
+         */
         function createPlayer() {
             const playerGroup = new THREE.Group();
-            const playerHeight = 1.7; 
-            const bodyRadius = 0.3;
-            const bodyHeight = playerHeight - 0.2; 
+            
+            // Player dimensions
+            const headRadius = 0.2;
+            const torsoHeight = 0.7;
+            const torsoRadius = 0.25;
+            const limbWidth = 0.1;
+            const legHeight = 0.9;
+            const armLength = 0.6;
+            
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: BODY_COLOR }); 
+            const skinMaterial = new THREE.MeshLambertMaterial({ color: SKIN_COLOR }); 
 
-            // 1. Body (simple cylinder)
-            const bodyGeometry = new THREE.CylinderGeometry(bodyRadius, bodyRadius, bodyHeight, 16);
-            const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x00bfff }); 
-            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-            body.position.y = bodyHeight / 2; 
-
-            // 2. Head (simple sphere)
-            const headRadius = 0.25;
+            // 1. Head (Sphere)
             const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16);
-            const headMaterial = new THREE.MeshLambertMaterial({ color: 0xffdbac }); 
-            const head = new THREE.Mesh(headGeometry, headMaterial);
-            head.position.y = bodyHeight + headRadius * 0.8; 
-
-            playerGroup.add(body);
+            const head = new THREE.Mesh(headGeometry, skinMaterial);
+            head.position.y = legHeight + torsoHeight - headRadius * 0.2; 
             playerGroup.add(head);
 
+            // 2. Torso (Cylinder/Capsule)
+            const torsoGeometry = new THREE.CylinderGeometry(torsoRadius, torsoRadius * 0.8, torsoHeight, 16);
+            const torso = new THREE.Mesh(torsoGeometry, bodyMaterial);
+            torso.position.y = legHeight + torsoHeight / 2; 
+            playerGroup.add(torso);
+
+            // 3. Arms (Cylinders)
+            const armGeometry = new THREE.CylinderGeometry(limbWidth * 0.8, limbWidth * 0.8, armLength, 8);
+            
+            // Right Arm
+            const rightArm = new THREE.Mesh(armGeometry, bodyMaterial);
+            rightArm.rotation.z = Math.PI / 2;
+            rightArm.position.set(torsoRadius + armLength / 2, legHeight + torsoHeight * 0.8, 0);
+            playerGroup.add(rightArm);
+
+            // Left Arm
+            const leftArm = new THREE.Mesh(armGeometry, bodyMaterial);
+            leftArm.rotation.z = -Math.PI / 2;
+            leftArm.position.set(-(torsoRadius + armLength / 2), legHeight + torsoHeight * 0.8, 0);
+            playerGroup.add(leftArm);
+
+            // 4. Legs (Cylinders)
+            const legGeometry = new THREE.CylinderGeometry(limbWidth, limbWidth, legHeight, 8);
+            const shortsMaterial = new THREE.MeshLambertMaterial({ color: BODY_COLOR * 0.8 }); // Darker uniform bottom
+
+            // Right Leg
+            const rightLeg = new THREE.Mesh(legGeometry, shortsMaterial);
+            rightLeg.position.set(torsoRadius * 0.4, legHeight / 2, 0);
+            playerGroup.add(rightLeg);
+
+            // Left Leg
+            const leftLeg = new THREE.Mesh(legGeometry, shortsMaterial);
+            leftLeg.position.set(-torsoRadius * 0.4, legHeight / 2, 0);
+            playerGroup.add(leftLeg);
+
+            // Set player group on the court level
             playerGroup.position.set(0, -BALL_RADIUS, 6);
             player = playerGroup;
             scene.add(player);
@@ -371,60 +433,67 @@
         function resetBall() {
             ballVelocity.set(0, 0, 0);
             isShooting = false;
-            // Hide the meter when shot is reset
+            isGuaranteedShot = false;
             document.getElementById('shot-meter-container').style.display = 'none';
             
             updateMessage("Ready to shoot! Hold and Release E!");
             
-            // Immediately place ball in player's hands
             updateMovementAndDribble(); 
         }
 
-        // --- SHOOT FUNCTION (UPDATED for variable power) ---
+        // --- SHOOT FUNCTION ---
 
         /**
          * Launches the ball with velocity determined by the charge power.
-         * @param {number} power - The charge factor (0 to >1.0). 1.0 is the ideal power for distance.
+         * @param {number} power - The charge factor (0 to >1.0). 1.0 is the ideal power.
          */
         function launchBall(power) {
             if (isShooting) return;
 
-            // Scale factor for velocity based on power (Clamping for velocity max, but keeping error logic based on raw power)
-            const VELOCITY_SCALE = Math.min(1.5, power); 
-
-            // Calculate distance to the hoop (Z-target is RIM_Z_POS = -8)
-            const distZ = Math.max(1, player.position.z - RIM_Z_POS); 
-            
-            // 1. Set the initial launch position
+            // 1. Set the initial launch position (common for both perfect and physics shots)
             ball.position.set(
                 player.position.x,
-                player.position.y + 1.8, 
+                player.position.y + 1.8, // Hand height
                 player.position.z - 0.5 
             ); 
 
-            // 2. Determine Initial Velocity components (Base values for an "ideal" 1.0 power shot)
-            const base_vz = distZ * 0.9; 
-            const base_vy = 12 + distZ * 0.4; 
+            isShooting = true;
+
+            if (isGuaranteedShot) {
+                // Perfect shot takes the animation path
+                shotProgress = 0;
+                shotStartPos.copy(ball.position); 
+                
+                // Dynamic duration based on distance for smoother 2K feel
+                const distZ = Math.max(1, player.position.z - RIM_Z_POS);
+                shotDuration = Math.min(2.0, 0.7 + distZ * 0.07); 
+                return;
+            }
+
+            // --- Standard Physics Launch for MISSES ---
+            
+            const VELOCITY_SCALE = Math.min(1.5, power); 
+            const distZ = Math.max(1, player.position.z - RIM_Z_POS); 
+            
+            // Base values for an "ideal" 1.0 power shot
+            const base_vz = distZ * 0.85; 
+            const base_vy = 13 + distZ * 0.5; 
             
             // Apply power scaling to velocity
             const vz = base_vz * VELOCITY_SCALE; 
             const vy = base_vy * VELOCITY_SCALE; 
             
-            // Lateral error based on how far 'power' is from the ideal 1.0 (Green zone is 0.9-1.1)
+            // Lateral error based on power timing (0.9-1.1 is perfect)
             let dx = 0;
             const idealPower = 1.0;
             
             if (power < idealPower - 0.1 || power > idealPower + 0.1) {
-                 // Error is greater the further the power is from 1.0
                  const errorFactor = Math.abs(power - idealPower) * 3; 
-                 // Random lateral push
-                 dx = (Math.random() - 0.5) * 0.5 * errorFactor; 
+                 // Random lateral push for missed timing
+                 dx = (Math.random() - 0.5) * 0.7 * errorFactor; 
             }
 
-            // Apply velocity (Negative Z is towards the hoop)
             ballVelocity.set(dx, vy, -vz); 
-
-            isShooting = true;
         }
 
         // --- Core Initialization ---
@@ -434,19 +503,18 @@
             const width = container.clientWidth;
             const height = container.clientHeight;
 
-            // Scene
+            // Scene and Renderer
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a2e); 
 
-            // Camera
-            camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 100);
-            camera.position.set(0, 2.5, 9); 
-
-            // Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(width, height);
             renderer.shadowMap.enabled = true;
             container.appendChild(renderer.domElement);
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 100);
+            camera.position.set(0, 2.5, 9); 
 
             // Lighting
             const ambientLight = new THREE.AmbientLight(0x404040, 3);
@@ -472,7 +540,7 @@
             animate();
         }
 
-        // --- Movement and Input Handlers ---
+        // --- Input and Movement ---
 
         function handleKeyDown(event) {
             const key = event.key.toLowerCase();
@@ -512,13 +580,17 @@
                 
                 let message = "Shot Fired!";
 
-                // 0.9 to 1.1 is the green zone (45% to 55% of the bar width is the target)
+                // GREEN ZONE CHECK (0.9 to 1.1 is the ideal range)
                 if (power >= 0.9 && power <= 1.1) { 
-                    message = "🔥 Great Release! 🔥";
-                } else if (power > 1.1) {
-                    message = "Too long! Less power next time.";
-                } else if (power < 0.9) {
-                    message = "Too short! More power next time.";
+                    isGuaranteedShot = true;
+                    message = "👑 GREAT RELEASE! SWISH! 👑";
+                } else {
+                    isGuaranteedShot = false;
+                    if (power > 1.1) {
+                        message = "Too long! Overcharged Shot.";
+                    } else {
+                        message = "Too short! Undercharged Shot.";
+                    }
                 }
 
                 launchBall(power); 
@@ -536,7 +608,7 @@
 
             if (isShooting) return;
 
-            // Apply movement, clamped by fence bounds (FENCE_X = 15)
+            // X Movement (Clamped by Fences at +/- 15)
             if (keysPressed.d) {
                 player.position.x += PLAYER_SPEED; 
                 player.position.x = Math.min(player.position.x, FENCE_X - 1); 
@@ -546,29 +618,29 @@
                 player.position.x = Math.max(player.position.x, -(FENCE_X - 1)); 
             }
 
-            // Apply movement, clamped by court bounds (1 to 15)
+            // Z Movement (Clamped by Fences at +/- 20, using 1 unit margin)
             if (keysPressed.w) {
                 player.position.z -= PLAYER_SPEED;
-                player.position.z = Math.max(player.position.z, 1); 
+                player.position.z = Math.max(player.position.z, -FENCE_Z + 1); // Towards the hoop (Z=-20)
             }
             if (keysPressed.s) {
                 player.position.z += PLAYER_SPEED;
-                player.position.z = Math.min(player.position.z, 15); 
+                player.position.z = Math.min(player.position.z, FENCE_Z - 1); // Towards the camera (Z=+20)
             }
 
-            // Dribble Logic (only if a movement key is pressed)
-            if (keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s || isCharging) {
-                // Dribble animation: use sine wave for bouncing
+            // Dribble Logic / Holding Ball Position
+            const isMovingOrCharging = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s || isCharging;
+            if (isMovingOrCharging) {
+                // Dribble animation
                 const bounceY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE)) * DRIBBLE_HEIGHT;
                 
-                // Position ball relative to player
                 ball.position.set(
                     player.position.x,
                     player.position.y + 0.5 + bounceY, 
-                    player.position.z - 1 
+                    player.position.z - 1 // Ball position slightly in front of the player
                 );
             } else {
-                // Not moving, holding the ball
+                // Holding the ball
                 ball.position.set(
                     player.position.x,
                     player.position.y + 1.2, 
@@ -576,36 +648,60 @@
                 );
             }
 
-            // Camera Tracking (follows player's X and Z position)
+            // Camera Tracking
             camera.position.z = player.position.z + 3;
             camera.position.x = player.position.x;
         }
 
-
-        function onWindowResize() {
-            const container = document.getElementById('game-container');
-            const width = container.clientWidth;
-            const height = container.clientHeight;
-
-            camera.aspect = width / height;
-            camera.updateProjectionMatrix();
-            renderer.setSize(width, height);
-        }
-
-        function updateMessage(text) {
-            document.getElementById('message').textContent = text;
-        }
-
-        function updateScore(points) {
-            score += points;
-            document.getElementById('score').textContent = `Score: ${score}`;
-            updateMessage(`SWISH! +${points} points!`);
-        }
-
-        // --- Physics and Collision Loop ---
+        // --- Game Physics ---
 
         function updateBall() {
             if (!isShooting) return;
+
+            if (isGuaranteedShot) {
+                // --- Guaranteed Shot Animation Path (2K Swish) ---
+                shotProgress += TIME_STEP;
+                const t = Math.min(1, shotProgress / shotDuration); // Normalized progress (0 to 1)
+
+                // Smooth interpolation
+                const smoothT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+                // 1. Horizontal Motion (Lerp)
+                ball.position.x = shotStartPos.x + (shotTargetPos.x - shotStartPos.x) * smoothT;
+                ball.position.z = shotStartPos.z + (shotTargetPos.z - shotStartPos.z) * smoothT;
+
+                // 2. Vertical Motion (Simulated high arc)
+                const arcHeight = 7; 
+                const currentY = shotStartPos.y + (shotTargetPos.y - shotStartPos.y) * smoothT;
+                
+                // Add parabolic offset
+                const parabolicArcOffset = (arcHeight - shotStartPos.y) * 4 * t * (1 - t);
+                ball.position.y = currentY + parabolicArcOffset;
+                
+                // Ball Rotation
+                ball.rotation.x += 0.5;
+
+                // Check for end of animation
+                if (t >= 1) {
+                    isShooting = false;
+                    isGuaranteedShot = false;
+                    
+                    // Determine points based on player's original launch spot
+                    const threePtDistance = 6.75;
+                    const shotDistance = Math.sqrt(
+                        Math.pow(player.position.x, 2) + Math.pow(player.position.z - RIM_Z_POS, 2)
+                    );
+                    
+                    let points = (shotDistance > threePtDistance) ? 3 : 2;
+                    
+                    updateScore(points); 
+                    setTimeout(resetBall, 1500);
+                }
+                
+                return; 
+            }
+            
+            // --- Standard Physics Path (for misses) ---
 
             // 1. Apply Gravity and Time Step
             ballVelocity.add(GRAVITY.clone().multiplyScalar(TIME_STEP));
@@ -613,47 +709,41 @@
             // 2. Update Position
             ball.position.add(ballVelocity.clone().multiplyScalar(TIME_STEP));
 
-            // 3. Fence Collision Check (Ball against FENCE_X = 15, FENCE_Z = 20)
+            // 3. Fence Collision Check 
             
-            // X-axis collision (Left/Right Side Fences)
+            // X-axis collision
             if (Math.abs(ball.position.x) > FENCE_X - BALL_RADIUS) {
                 ball.position.x = Math.sign(ball.position.x) * (FENCE_X - BALL_RADIUS);
-                ballVelocity.x *= -0.7; // Bounce off (70% retention)
+                ballVelocity.x *= -0.7; 
                 updateMessage("Hit the side fence!");
             }
 
-            // Z-axis collision (Back Fence only, front is open)
+            // Z-axis collision (Back Fence only)
             if (ball.position.z < -FENCE_Z + BALL_RADIUS) {
                 ball.position.z = -FENCE_Z + BALL_RADIUS;
-                ballVelocity.z *= -0.7; // Bounce off
+                ballVelocity.z *= -0.7; 
                 updateMessage("Hit the back fence!");
             }
 
-
-            // 4. Scoring Check and Hoop/Backboard Collision
+            // 4. Scoring Check and Hoop/Backboard Collision (Same logic as before for bounces)
             const rimRadius = 0.228;
             const HOOP_TOLERANCE = 0.5;
 
-            // Check if ball is near the rim height
             if (ball.position.y > RIM_Y_POS - HOOP_TOLERANCE && ball.position.y < RIM_Y_POS + HOOP_TOLERANCE) {
                 const distanceXZ = Math.sqrt(
                     Math.pow(ball.position.x, 2) + Math.pow(ball.position.z - RIM_Z_POS, 2)
                 );
 
-                // Scoring check (passed through rim plane while falling)
+                // Score on physics path
                 if (distanceXZ < rimRadius && ball.position.z > RIM_Z_POS && ball.position.z + ballVelocity.z * TIME_STEP < RIM_Z_POS) {
                     if (ball.position.y > RIM_Y_POS - 0.1 && ball.position.y < RIM_Y_POS + 0.1 && ballVelocity.y < 0) {
                         
-                        // Check for 3-pointer
                         const threePtDistance = 6.75;
                         const shotDistance = Math.sqrt(
                             Math.pow(player.position.x, 2) + Math.pow(player.position.z - RIM_Z_POS, 2)
                         );
                         
-                        let points = 2;
-                        if (shotDistance > threePtDistance) {
-                            points = 3;
-                        }
+                        let points = (shotDistance > threePtDistance) ? 3 : 2;
 
                         updateScore(points); 
                         isShooting = false;
@@ -672,12 +762,10 @@
                     ball.position.x > -BOARD_X - BALL_RADIUS && ball.position.x < BOARD_X + BALL_RADIUS &&
                     ball.position.y > RIM_Y_POS && ball.position.y < BOARD_Y_MAX)
                 {
-                    // Bounce off the backboard
                     ballVelocity.z *= -0.7; 
                     updateMessage("Clank! Off the glass.");
                 }
             }
-
 
             // 5. Ground Check
             if (ball.position.y < BALL_RADIUS) {
@@ -686,7 +774,6 @@
                 ballVelocity.x *= 0.8;
                 ballVelocity.z *= 0.8;
 
-                // Stop the ball if velocity is too low
                 if (ballVelocity.length() < 1) {
                     isShooting = false;
                     setTimeout(resetBall, 3000); 
@@ -700,32 +787,28 @@
         function animate() {
             requestAnimationFrame(animate);
 
-            // 1. Handle player movement and ball dribbling
             updateMovementAndDribble();
 
-            // 1.5. Update Shot Meter UI (NEW)
+            // Update Shot Meter UI
             if (isCharging) {
                 const chargeDuration = (performance.now() - chargeStartTime) / 1000;
                 let powerPercentage = Math.min(100, (chargeDuration / MAX_CHARGE_TIME) * 100);
                 
-                // Keep the bar cycling visually if it's overcharged (power > 1.0)
                 if (chargeDuration > MAX_CHARGE_TIME) {
-                     // Pulse effect on display width (purely visual)
+                     // Visual pulse for overcharge
                      const pulseFactor = 1.0 + Math.abs(Math.sin(gameClock * 15)) * 0.1; 
                      document.getElementById('shot-bar').style.width = `${100 * pulseFactor}%`;
                      document.getElementById('shot-meter-container').style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.9)';
                 } else {
                     document.getElementById('shot-bar').style.width = `${powerPercentage}%`;
-                    // Reset shadow back to green
                     document.getElementById('shot-meter-container').style.boxShadow = '0 0 10px rgba(0, 255, 0, 0.5)';
                 }
             }
 
-            // 2. Update shooting physics
             updateBall();
 
-            // Ball rotation based on velocity (only when shooting)
-            if (isShooting) {
+            // Ball rotation
+            if (isShooting && !isGuaranteedShot) {
                 ball.rotation.x += ballVelocity.z * 0.1 * TIME_STEP;
                 ball.rotation.y += ballVelocity.x * 0.1 * TIME_STEP;
             }
@@ -733,7 +816,6 @@
             renderer.render(scene, camera);
         }
 
-        // Initialize the game when the window loads
         window.onload = init;
     </script>
 </body>
