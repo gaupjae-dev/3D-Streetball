@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Streetball Shooter - Detailed Player</title>
+    <title>3D Streetball Shooter - Detailed Player & Hoop</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
@@ -157,7 +157,8 @@
         const BALL_RADIUS = 0.24;
         const RIM_Y_POS = 3.05; 
         const RIM_Z_POS = -8; 
-        const RIM_THICKNESS = 0.02; 
+        // 1. Global Constant Update
+        const RIM_THICKNESS = 0.02; // Required for the rim collision physics
         const BOUNCE_DAMPING = 0.6; 
 
         // Court Boundaries for fence
@@ -193,23 +194,6 @@
             score += points;
             document.getElementById('score').textContent = `Score: ${score}`;
             updateMessage(`SWISH! +${points} points!`);
-        }
-
-        /**
-         * Creates a rounded rectangle shape for the backboard aesthetic.
-         */
-        function createRoundedRectShape( width, height, radius ) {
-            const shape = new THREE.Shape();
-            shape.moveTo( 0, radius );
-            shape.lineTo( 0, height - radius );
-            shape.quadraticCurveTo( 0, height, radius, height );
-            shape.lineTo( width - radius, height );
-            shape.quadraticCurveTo( width, height, width, height - radius );
-            shape.lineTo( width, radius );
-            shape.quadraticCurveTo( width, 0, width - radius, 0 );
-            shape.lineTo( radius, 0 );
-            shape.quadraticCurveTo( 0, 0, 0, radius );
-            return shape;
         }
 
         /**
@@ -257,7 +241,7 @@
             court = new THREE.Mesh(groundGeometry, groundMaterial);
             court.rotation.x = -Math.PI / 2;
             court.position.y = -BALL_RADIUS; 
-            court.receiveShadow = true; // Ensure court receives shadows
+            court.receiveShadow = true; 
             scene.add(court);
 
             createFences(); 
@@ -308,39 +292,59 @@
             scene.add(backBase);
         }
 
+        // 2. Updated createHoop() (Detailed Model)
         /**
-         * Creates the hoop structure (backboard, pole, rim).
+         * Creates a detailed NBA-style hoop model based on the blueprint specifications.
          */
         function createHoop() {
             hoop = new THREE.Group();
 
-            // 1. Backboard
-            const boardWidth = 1.8;
-            const boardHeight = 1.05;
-            const boardThickness = 0.05;
-            const backboardShape = createRoundedRectShape(boardWidth, boardHeight, 0.1);
-            const backboardGeometry = new THREE.ExtrudeGeometry(backboardShape, {
-                steps: 1, depth: boardThickness, bevelEnabled: false
+            // 1. DIMENSIONS
+            const BACKBOARD_WIDTH = 1.83; 
+            const BACKBOARD_HEIGHT = 1.07; 
+            const BACKBOARD_THICKNESS = 0.03;
+            const RIM_RADIUS = 0.228; 
+            const RIM_THICKNESS_VISUAL = 0.02; // Use RIM_THICKNESS for physics
+            const POLE_OFFSET_Z = 1.2; 
+
+            // 2. BACKBOARD (Transparent Acrylic)
+            const backboardGeometry = new THREE.BoxGeometry(BACKBOARD_WIDTH, BACKBOARD_HEIGHT, BACKBOARD_THICKNESS);
+            const backboardMaterial = new THREE.MeshLambertMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.8
             });
-            backboardGeometry.center();
-            const backboardMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
             const backboard = new THREE.Mesh(backboardGeometry, backboardMaterial);
-            backboard.position.set(0, RIM_Y_POS + boardHeight / 2 - 0.1, RIM_Z_POS - boardThickness / 2);
+            backboard.position.set(0, RIM_Y_POS + BACKBOARD_HEIGHT / 2 - 0.1, RIM_Z_POS - RIM_THICKNESS_VISUAL - BACKBOARD_THICKNESS / 2);
+            backboard.castShadow = true;
             backboard.receiveShadow = true;
             hoop.add(backboard);
 
-            // 2. Pole
-            const poleHeight = RIM_Y_POS + boardHeight / 2;
-            const poleGeometry = new THREE.CylinderGeometry(0.1, 0.1, poleHeight, 16);
-            const poleMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
-            const pole = new THREE.Mesh(poleGeometry, poleMaterial);
-            pole.position.set(0, poleHeight / 2 - BALL_RADIUS, RIM_Z_POS);
-            pole.castShadow = true;
-            hoop.add(pole);
+            // 3. TARGET BOX (Red)
+            const boxWidth = 0.61; 
+            const boxHeight = 0.45; 
+            const boxThickness = 0.005;
+            const boxMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const boxY = backboard.position.y + BACKBOARD_HEIGHT / 2 - 0.15 - boxHeight / 2;
+            const lines = new THREE.Group();
+            lines.add(new THREE.Mesh(new THREE.BoxGeometry(boxWidth, boxThickness, boxThickness), boxMaterial)).position.set(0, boxY + boxHeight / 2, 0); 
+            lines.add(new THREE.Mesh(new THREE.BoxGeometry(boxWidth, boxThickness, boxThickness), boxMaterial)).position.set(0, boxY - boxHeight / 2, 0); 
+            lines.add(new THREE.Mesh(new THREE.BoxGeometry(boxThickness, boxHeight, boxThickness), boxMaterial)).position.set(boxWidth / 2, boxY, 0);      
+            lines.add(new THREE.Mesh(new THREE.BoxGeometry(boxThickness, boxHeight, boxThickness), boxMaterial)).position.set(-boxWidth / 2, boxY, 0);     
+            lines.position.z = backboard.position.z + BACKBOARD_THICKNESS / 2 + boxThickness / 2;
+            hoop.add(lines);
 
-            // 3. Rim
-            const rimRadius = 0.228; 
-            const rimGeometry = new THREE.TorusGeometry(rimRadius, RIM_THICKNESS / 2, 16, 50); 
+            // 4. BOTTOM PADDING (Thick Safety Red)
+            const paddingHeight = 0.25; 
+            const paddingGeo = new THREE.BoxGeometry(BACKBOARD_WIDTH + 0.1, paddingHeight, BACKBOARD_THICKNESS + 0.1);
+            const paddingMaterial = new THREE.MeshLambertMaterial({ color: 0xcc0000 });
+            const padding = new THREE.Mesh(paddingGeo, paddingMaterial);
+            padding.position.set(0, backboard.position.y - BACKBOARD_HEIGHT / 2 - paddingHeight / 2 + 0.02, backboard.position.z);
+            padding.castShadow = true;
+            hoop.add(padding);
+
+            // 5. RIM (Spring Hinge Model)
+            const rimGeometry = new THREE.TorusGeometry(RIM_RADIUS, RIM_THICKNESS_VISUAL / 2, 16, 50);
             const rimMaterial = new THREE.MeshLambertMaterial({ color: 0xcc0000 });
             const rim = new THREE.Mesh(rimGeometry, rimMaterial);
             rim.rotation.x = Math.PI / 2;
@@ -348,17 +352,38 @@
             rim.castShadow = true;
             hoop.add(rim);
 
-            // 4. Score detection plane (Invisible, used for scoring check)
-            const rimTolerance = 0.1;
-            const scorePlaneGeometry = new THREE.PlaneGeometry(rimRadius * 2, rimRadius * 2);
-            const scorePlaneMaterial = new THREE.MeshBasicMaterial({ visible: false }); 
-            const scorePlane = new THREE.Mesh(scorePlaneGeometry, scorePlaneMaterial);
-            scorePlane.rotation.x = -Math.PI / 2;
-            scorePlane.position.set(0, RIM_Y_POS - rimTolerance, RIM_Z_POS); 
-            scorePlane.userData.isScorePlane = true;
-            hoop.add(scorePlane);
+            // 6. NET (Tapered Cone Geometry)
+            const NET_HEIGHT = 0.45; 
+            const NET_BOTTOM_RADIUS = 0.1;
+            const netGeometry = new THREE.CylinderGeometry(RIM_RADIUS, NET_BOTTOM_RADIUS, NET_HEIGHT, 32, 1, true);
+            const netMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0xffffff, 
+                transparent: true, 
+                opacity: 0.6,
+                side: THREE.DoubleSide
+            });
+            const net = new THREE.Mesh(netGeometry, netMaterial);
+            net.position.set(0, RIM_Y_POS - NET_HEIGHT / 2, RIM_Z_POS);
+            hoop.add(net);
 
-            hoop.position.set(0, 0, RIM_Z_POS);
+            // 7. POLE AND SUPPORT (Fixing the Z overlap)
+            const poleHeight = RIM_Y_POS + BACKBOARD_HEIGHT + 1.0; 
+            const poleMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            const poleGeometry = new THREE.CylinderGeometry(0.1, 0.1, poleHeight, 16);
+            const pole = new THREE.Mesh(poleGeometry, poleMaterial);
+            pole.position.set(0, poleHeight / 2 - BALL_RADIUS, RIM_Z_POS - POLE_OFFSET_Z);
+            pole.castShadow = true;
+
+            const armLength = POLE_OFFSET_Z - BACKBOARD_THICKNESS / 2;
+            const supportArmGeo = new THREE.BoxGeometry(0.1, 0.1, armLength);
+            const supportArm = new THREE.Mesh(supportArmGeo, poleMaterial);
+            supportArm.position.set(0, backboard.position.y, RIM_Z_POS - POLE_OFFSET_Z / 2 - BACKBOARD_THICKNESS / 2);
+            supportArm.castShadow = true;
+            
+            hoop.add(pole);
+            hoop.add(supportArm);
+
+            hoop.position.set(0, 0, 0); 
             scene.add(hoop);
         }
 
@@ -372,7 +397,6 @@
             scene.add(ball);
         }
 
-        // --- REVISED AND IMPROVED createPlayer() FUNCTION ---
         function createPlayer() {
             const playerGroup = new THREE.Group();
             
@@ -388,7 +412,7 @@
             const skinMaterial = new THREE.MeshLambertMaterial({ color: SKIN_COLOR }); 
             const shortsMaterial = new THREE.MeshLambertMaterial({ color: SHORTS_COLOR }); 
             const shoeMaterial = new THREE.MeshLambertMaterial({ color: 0xcccccc }); 
-            const accessoryMaterial = new THREE.MeshLambertMaterial({ color: 0xff0000 }); // Red for accessories
+            const accessoryMaterial = new THREE.MeshLambertMaterial({ color: 0xff0000 }); 
 
             // 1. Head
             const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16);
@@ -414,7 +438,6 @@
             
             // 2.1 Jersey Number (Simple Plane)
             const numberPlane = new THREE.PlaneGeometry(torsoRadius * 0.8, torsoRadius * 0.8);
-            // In a real app, this would use a texture. Here, we use a simple white material.
             const numberMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }); 
             const numberMesh = new THREE.Mesh(numberPlane, numberMaterial);
             numberMesh.rotation.y = Math.PI; // Face outwards (towards the camera initially)
@@ -520,6 +543,7 @@
             leftKnee.position.y = upperLegLength;
             leftLegGroup.add(leftKnee);
 
+            // Lower Leg
             const leftLowerLeg = new THREE.Mesh(lowerLegGeometry, skinMaterial);
             leftLowerLeg.position.y = upperLegLength + lowerLegLength / 2;
             leftLegGroup.add(leftLowerLeg);
@@ -549,9 +573,6 @@
             scene.add(player);
         }
 
-        // --- Rest of the Functions (createHoop, createBall, resetBall, launchBall, updateBall, etc.) ---
-        // (No changes needed in these sections unless noted)
-        // ... (The rest of the game code is placed here) ...
 
         function resetBall() {
             ballVelocity.set(0, 0, 0);
@@ -563,6 +584,8 @@
             
             updateMovementAndDribble(); 
         }
+
+        // --- SHOOT FUNCTION (UPDATED) ---
 
         /**
          * Launches the ball with velocity determined by the charge power and calculated trajectory.
@@ -591,51 +614,36 @@
                 return;
             }
 
-            // --- Standard Physics Launch for MISSES ---
+            // 4. Update launchBall() (Realistic Miss Tuning)
+            // --- Standard Physics Launch for REALISTIC MISSES ---
+            const VELOCITY_SCALE = Math.min(1.5, power); 
+            const distZ = Math.max(1, player.position.z - RIM_Z_POS); 
             
-            const shotStart = ball.position;
-            const target = shotTargetPos; // Center of the rim (0, 3.05, -8)
-            const delta = target.clone().sub(shotStart);
-            const distXZ = Math.sqrt(delta.x * delta.x + delta.z * delta.z); // Horizontal distance
+            // Base values for an "ideal" 1.0 power shot
+            const base_vz = distZ * 0.85; 
+            const base_vy = 13 + distZ * 0.5; 
             
-            // 2. Determine Ideal Launch Velocity based on a target apex height
+            // Apply power scaling to velocity
+            const vz = base_vz * VELOCITY_SCALE; 
+            const vy = base_vy * VELOCITY_SCALE; 
             
-            const APEX_HEIGHT = 4.0 + Math.min(3.0, distXZ * 0.6); 
-            const targetY = target.y;
-            const startY = shotStart.y;
-            const gravityMag = -GRAVITY.y;
-
-            let vy_ideal = Math.sqrt(2 * gravityMag * (APEX_HEIGHT - startY));
-            let t_apex = vy_ideal / gravityMag;
-            let t_fall = Math.sqrt(2 * (APEX_HEIGHT - targetY) / gravityMag);
-            let t_flight = t_apex + t_fall;
-            let vxz_ideal = distXZ / t_flight;
-            
-            // 3. Apply Power and Error
+            // Lateral error tuning:
+            let dx = 0;
             const idealPower = 1.0;
-            const powerError = power - idealPower;
-            const errorFactor = Math.abs(powerError);
-            const vScale = 1.0 + powerError * 0.5; 
-
-            let vx_ideal = delta.x / distXZ * vxz_ideal;
-            let vz_ideal = delta.z / distXZ * vxz_ideal;
             
-            ballVelocity.x = vx_ideal * vScale;
-            ballVelocity.z = vz_ideal * vScale;
-            ballVelocity.y = vy_ideal * vScale;
-            
-            // Positional Error (Drift)
-            const difficultyScale = Math.min(3.0, distXZ / 4); 
+            // Close misses (0.7-0.9 and 1.1-1.3) should have minimal lateral error
+            // to ensure the ball flies mostly straight at the hoop.
+            if (power < idealPower - 0.3 || power > idealPower + 0.3) {
+                // Only apply major lateral error for severe under/over-charge
+                const errorFactor = Math.abs(power - idealPower) * 2; 
+                dx = (Math.random() - 0.5) * 1.5 * errorFactor; // Large lateral push
+            } else {
+                // For close misses, keep lateral error minimal (encourages rim/backboard hits)
+                dx = (Math.random() - 0.5) * 0.2; 
+            }
 
-            let lateralError = (Math.random() - 0.5) * errorFactor * 1.5 * difficultyScale;
-            ballVelocity.x += lateralError;
-
-            let verticalError = (Math.random() - 0.5) * errorFactor * 0.2 * difficultyScale;
-            ballVelocity.y += verticalError; 
-
-            ballVelocity.z = -Math.abs(ballVelocity.z); 
+            ballVelocity.set(dx, vy, -vz);
         }
-
 
         function updateMovementAndDribble() {
             gameClock += TIME_STEP;
@@ -787,7 +795,7 @@
                 // Backboard Collision 
                 const BOARD_X = 0.9;
                 const BOARD_Y_MAX = RIM_Y_POS + 1.05;
-                const BOARD_Z = RIM_Z_POS - 0.025;
+                const BOARD_Z = RIM_Z_POS - 0.025 - RIM_THICKNESS;
                 const BALL_Z = ball.position.z;
 
                 if (BALL_Z < BOARD_Z + BALL_RADIUS && BALL_Z > BOARD_Z - BALL_RADIUS &&
@@ -798,35 +806,36 @@
                     updateMessage("Clank! Off the glass.");
                 }
 
+                // 5. Update updateBall() (Rim Collision Integration)
                 // 4.1 RIM COLLISION CHECK (Torus Approximation)
                 const rimCenter = new THREE.Vector3(0, RIM_Y_POS, RIM_Z_POS);
                 const rimToBall = new THREE.Vector3().subVectors(ball.position, rimCenter);
-
+                
                 if (Math.abs(rimToBall.y) < BALL_RADIUS + RIM_THICKNESS / 2) {
                     const distanceXZ = Math.sqrt(rimToBall.x * rimToBall.x + rimToBall.z * rimToBall.z);
                     
                     if (distanceXZ < rimRadius + BALL_RADIUS) {
-                        
                         const rimPointXZ = rimToBall.clone();
                         rimPointXZ.y = 0; 
                         rimPointXZ.normalize().multiplyScalar(rimRadius);
 
-                        const closestRimPoint = new THREE.Vector3(rimPointXZ.x, ball.position.y, rimPointXZ.z);
+                        const closestRimPoint = new THREE.Vector3(rimPointXZ.x, RIM_Y_POS, rimPointXZ.z);
                         closestRimPoint.add(rimCenter); 
-                        closestRimPoint.y = RIM_Y_POS; 
 
                         const normal = new THREE.Vector3().subVectors(ball.position, closestRimPoint).normalize();
                         const distance = ball.position.distanceTo(closestRimPoint);
 
                         if (distance < BALL_RADIUS + RIM_THICKNESS) {
+                            // Resolve intersection (push ball out)
                             const penetration = BALL_RADIUS + RIM_THICKNESS - distance;
                             ball.position.add(normal.clone().multiplyScalar(penetration));
 
+                            // Reflect velocity
                             const dot = ballVelocity.dot(normal);
                             const reflection = normal.clone().multiplyScalar(2 * dot);
                             ballVelocity.sub(reflection).multiplyScalar(BOUNCE_DAMPING); 
 
-                            updateMessage("💥 CLANG! Off the rim!");
+                            updateMessage("CLANG! Off the rim!");
                         }
                     }
                 }
@@ -928,6 +937,7 @@
             }
         }
 
+        // 3. Update handleKeyUp() (The Swish/Miss Toggle)
         function handleKeyUp(event) {
             const key = event.key.toLowerCase();
             
@@ -941,20 +951,23 @@
 
                 const chargeDuration = (performance.now() - chargeStartTime) / 1000;
                 const power = chargeDuration / MAX_CHARGE_TIME;
-                
                 let message = "Shot Fired!";
 
+                // --- NEW SHOT JUDGEMENT LOGIC ---
+                // 1. GREEN ZONE CHECK (0.9 to 1.1) - Guaranteed Swish
                 if (power >= 0.9 && power <= 1.1) { 
                     isGuaranteedShot = true;
                     message = "👑 GREAT RELEASE! SWISH! 👑";
                 } else {
+                    // 2. MISS ZONE - Use physics tuned for realistic misses (rim/backboard)
                     isGuaranteedShot = false;
                     if (power > 1.1) {
-                        message = "Too long! Overcharged Shot.";
+                        message = "Too long! Off the top.";
                     } else {
-                        message = "Too short! Undercharged Shot.";
+                        message = "Too short! Off the front.";
                     }
                 }
+                // --- END NEW SHOT JUDGEMENT LOGIC ---
 
                 launchBall(power); 
                 updateMessage(message);
@@ -973,6 +986,7 @@
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a2e); 
+            
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(width, height);
@@ -1000,8 +1014,8 @@
             scene.add(directionalLight);
 
             createCourt();
-            createHoop();
-            createPlayer(); // The enhanced function is called here
+            createHoop(); 
+            createPlayer(); 
             createBall();
             resetBall(); 
 
