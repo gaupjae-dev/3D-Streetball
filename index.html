@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D Streetball Shooter - Improved</title>
+    <!-- Load Three.js library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
@@ -120,6 +121,7 @@
         <div id="instructions">
             Use **W, A, S, D** to dribble and move. **HOLD E** to charge shot, **RELEASE E** to shoot!
         </div>
+        <!-- Shot Meter UI -->
         <div id="shot-meter-container">
             <div id="shot-bar"></div>
             <div id="shot-target"></div>
@@ -164,11 +166,13 @@
         const FENCE_HEIGHT = 5;
 
         // Player model settings
-        const PLAYER_HEIGHT = 1.8;
         const BODY_COLOR = 0x00aaff; // Jersey color
         const SKIN_COLOR = 0xffdbac; // Skin tone
+        
+        // Camera smooth follow factor
+        const CAMERA_SMOOTHNESS = 0.05;
 
-        // --- Utility Functions (Moved up to fix ReferenceError) ---
+        // --- Utility Functions ---
 
         function onWindowResize() {
             const container = document.getElementById('game-container');
@@ -423,6 +427,8 @@
 
             // Set player group on the court level
             playerGroup.position.set(0, -BALL_RADIUS, 6);
+            // Default player rotation to face the hoop (-Z)
+            playerGroup.rotation.y = Math.PI;
             player = playerGroup;
             scene.add(player);
         }
@@ -439,7 +445,7 @@
             updateMovementAndDribble(); 
         }
 
-        // --- SHOOT FUNCTION (UPDATED) ---
+        // --- SHOOT FUNCTION ---
 
         /**
          * Launches the ball with velocity determined by the charge power and calculated trajectory.
@@ -645,6 +651,7 @@
 
             if (isShooting) return;
 
+            // --- Player Movement and Clamping ---
             // X Movement (Clamped by Fences at +/- 15)
             if (keysPressed.d) {
                 player.position.x += PLAYER_SPEED; 
@@ -665,8 +672,23 @@
                 player.position.z = Math.min(player.position.z, FENCE_Z - 1); // Towards the camera (Z=+20)
             }
 
-            // Dribble Logic / Holding Ball Position
-            const isMovingOrCharging = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s || isCharging;
+            // --- Player Rotation Logic (NEW) ---
+            // dirX: positive when pressing D (Right)
+            // dirZ: positive when pressing S (Back)
+            const dirX = (keysPressed.d ? 1 : 0) - (keysPressed.a ? 1 : 0);
+            const dirZ = (keysPressed.s ? 1 : 0) - (keysPressed.w ? 1 : 0);
+
+            if (dirX !== 0 || dirZ !== 0) {
+                // Calculate the target angle based on the movement vector
+                const targetAngle = Math.atan2(dirX, dirZ); 
+                
+                // Use LERP to smoothly transition the player's rotation
+                const SMOOTH_ROTATION = 0.2; 
+                player.rotation.y += (targetAngle - player.rotation.y) * SMOOTH_ROTATION;
+            }
+
+            // --- Dribble/Ball Holding Logic ---
+            const isMovingOrCharging = dirX !== 0 || dirZ !== 0 || isCharging;
             if (isMovingOrCharging) {
                 // Dribble animation
                 const bounceY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE)) * DRIBBLE_HEIGHT;
@@ -685,12 +707,14 @@
                 );
             }
 
-            // Camera Tracking
-            camera.position.z = player.position.z + 3;
-            camera.position.x = player.position.x;
+            // --- Camera Tracking (LERP) (NEW) ---
+            // Target Z is player Z + 3 (distance behind player)
+            camera.position.z += (player.position.z + 3 - camera.position.z) * CAMERA_SMOOTHNESS;
+            // Target X is exactly player X
+            camera.position.x += (player.position.x - camera.position.x) * CAMERA_SMOOTHNESS;
         }
 
-        // --- Game Physics (UPDATED) ---
+        // --- Game Physics ---
 
         function updateBall() {
             if (!isShooting) return;
@@ -804,7 +828,7 @@
                 }
             }
 
-            // 5. Ground Check (IMPROVED)
+            // 5. Ground Check
             if (ball.position.y < BALL_RADIUS) {
                 ball.position.y = BALL_RADIUS;
 
@@ -822,7 +846,7 @@
                 ballVelocity.x *= FRICTION;
                 ballVelocity.z *= FRICTION;
 
-                // Stop if velocity is low (increased threshold for a quicker stop)
+                // Stop if velocity is low
                 if (ballVelocity.length() < 1.5) {
                     isShooting = false;
                     setTimeout(resetBall, 3000); 
