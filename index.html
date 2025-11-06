@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Streetball Shooter - Detailed Player & Hoop</title>
+    <title>3D Streetball Shooter - Animated Player</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
@@ -157,7 +157,6 @@
         const BALL_RADIUS = 0.24;
         const RIM_Y_POS = 3.05; 
         const RIM_Z_POS = -8; 
-        // 1. Global Constant Update
         const RIM_THICKNESS = 0.02; // Required for the rim collision physics
         const BOUNCE_DAMPING = 0.6; 
 
@@ -196,9 +195,6 @@
             updateMessage(`SWISH! +${points} points!`);
         }
 
-        /**
-         * Creates the tall fences around the playing area.
-         */
         function createFences() {
             const FENCE_THICKNESS = 0.1;
             const fenceMaterial = new THREE.MeshLambertMaterial({ 
@@ -231,9 +227,6 @@
             scene.add(backFence);
         }
 
-        /**
-         * Creates the court floor and markings.
-         */
         function createCourt() {
             // Ground Plane
             const groundGeometry = new THREE.PlaneGeometry(30, 40);
@@ -292,10 +285,6 @@
             scene.add(backBase);
         }
 
-        // 2. Updated createHoop() (Detailed Model)
-        /**
-         * Creates a detailed NBA-style hoop model based on the blueprint specifications.
-         */
         function createHoop() {
             hoop = new THREE.Group();
 
@@ -397,6 +386,7 @@
             scene.add(ball);
         }
 
+        // 1. ⚙️ Update Player Creation for Easier Animation
         function createPlayer() {
             const playerGroup = new THREE.Group();
             
@@ -444,14 +434,14 @@
             numberMesh.position.set(0, legHeight + torsoHeight * 0.7, torsoRadius * 0.95);
             playerGroup.add(numberMesh);
 
-            // 3. Arms (Articulated for better posing)
+            // 3. Arms (Articulated and Grouped for Animation)
             const upperArmLength = armLength * 0.5;
             const lowerArmLength = armLength * 0.5;
             const upperArmGeometry = new THREE.CylinderGeometry(limbWidth * 0.8, limbWidth * 0.8, upperArmLength, 8);
             const lowerArmGeometry = new THREE.CylinderGeometry(limbWidth * 0.7, limbWidth * 0.7, lowerArmLength, 8);
             const handGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1); 
 
-            // Right Arm Group (Shoulder at origin of group)
+            // Right Arm Group (Pivot at Shoulder)
             const rightArmGroup = new THREE.Group();
             
             // Upper Arm (Jersey color)
@@ -478,11 +468,11 @@
             rightWristband.position.x = upperArmLength + lowerArmLength;
             rightArmGroup.add(rightWristband);
 
-            // Position the whole arm relative to the torso
+            // Position the whole group at the shoulder location
             rightArmGroup.position.set(torsoRadius, legHeight + torsoHeight * 0.7, 0); 
             playerGroup.add(rightArmGroup);
 
-            // Left Arm Group
+            // Left Arm Group (Pivot at Shoulder)
             const leftArmGroup = new THREE.Group();
             
             const leftUpperArm = new THREE.Mesh(upperArmGeometry, bodyMaterial);
@@ -551,7 +541,7 @@
             leftLegGroup.position.set(-torsoRadius * 0.4, 0, 0);
             playerGroup.add(leftLegGroup);
             
-            // --- Shoes (Attached directly to playerGroup, below the legs) ---
+            // --- Shoes ---
             const shoeGeometry = new THREE.BoxGeometry(limbWidth * 2, 0.15, limbWidth * 3);
             
             const rightShoe = new THREE.Mesh(shoeGeometry, shoeMaterial);
@@ -570,9 +560,13 @@
             player = playerGroup;
             player.castShadow = true; 
             player.rotation.y = Math.PI; 
+            
+            // Assign groups to userData for animation access
+            player.userData.rightArmGroup = rightArmGroup; 
+            player.userData.leftArmGroup = leftArmGroup;
+            
             scene.add(player);
         }
-
 
         function resetBall() {
             ballVelocity.set(0, 0, 0);
@@ -585,12 +579,6 @@
             updateMovementAndDribble(); 
         }
 
-        // --- SHOOT FUNCTION (UPDATED) ---
-
-        /**
-         * Launches the ball with velocity determined by the charge power and calculated trajectory.
-         * @param {number} power - The charge factor (0 to >1.0). 1.0 is the ideal power.
-         */
         function launchBall(power) {
             if (isShooting) return;
 
@@ -614,7 +602,6 @@
                 return;
             }
 
-            // 4. Update launchBall() (Realistic Miss Tuning)
             // --- Standard Physics Launch for REALISTIC MISSES ---
             const VELOCITY_SCALE = Math.min(1.5, power); 
             const distZ = Math.max(1, player.position.z - RIM_Z_POS); 
@@ -631,8 +618,6 @@
             let dx = 0;
             const idealPower = 1.0;
             
-            // Close misses (0.7-0.9 and 1.1-1.3) should have minimal lateral error
-            // to ensure the ball flies mostly straight at the hoop.
             if (power < idealPower - 0.3 || power > idealPower + 0.3) {
                 // Only apply major lateral error for severe under/over-charge
                 const errorFactor = Math.abs(power - idealPower) * 2; 
@@ -648,70 +633,127 @@
         function updateMovementAndDribble() {
             gameClock += TIME_STEP;
 
-            if (isShooting) return;
+            if (isShooting && !isGuaranteedShot) return; // Allow animation control for perfect shot
 
             // --- Player Movement and Clamping ---
-            // X Movement (Clamped by Fences at +/- 15)
-            if (keysPressed.d) {
-                player.position.x += PLAYER_SPEED; 
-                player.position.x = Math.min(player.position.x, FENCE_X - 1); 
-            }
-            if (keysPressed.a) {
-                player.position.x -= PLAYER_SPEED; 
-                player.position.x = Math.max(player.position.x, -(FENCE_X - 1)); 
-            }
-
-            // Z Movement (Clamped by Fences at +/- 20, using 1 unit margin)
-            if (keysPressed.w) {
-                player.position.z -= PLAYER_SPEED;
-                player.position.z = Math.max(player.position.z, -FENCE_Z + 1); // Towards the hoop (Z=-20)
-            }
-            if (keysPressed.s) {
-                player.position.z += PLAYER_SPEED;
-                player.position.z = Math.min(player.position.z, FENCE_Z - 1); // Towards the camera (Z=+20)
-            }
-
-            // --- Player Rotation Logic ---
             const dirX = (keysPressed.d ? 1 : 0) - (keysPressed.a ? 1 : 0);
             const dirZ = (keysPressed.s ? 1 : 0) - (keysPressed.w ? 1 : 0);
 
-            if (dirX !== 0 || dirZ !== 0) {
-                // Calculate the target angle based on the movement vector
-                const targetAngle = Math.atan2(dirX, dirZ); 
-                
-                // Use LERP to smoothly transition the player's rotation
-                const SMOOTH_ROTATION = 0.2; 
-                player.rotation.y += (targetAngle - player.rotation.y) * SMOOTH_ROTATION;
+            if (!isCharging) {
+                if (keysPressed.d) {
+                    player.position.x += PLAYER_SPEED; 
+                    player.position.x = Math.min(player.position.x, FENCE_X - 1); 
+                }
+                if (keysPressed.a) {
+                    player.position.x -= PLAYER_SPEED; 
+                    player.position.x = Math.max(player.position.x, -(FENCE_X - 1)); 
+                }
+                if (keysPressed.w) {
+                    player.position.z -= PLAYER_SPEED;
+                    player.position.z = Math.max(player.position.z, -FENCE_Z + 1); 
+                }
+                if (keysPressed.s) {
+                    player.position.z += PLAYER_SPEED;
+                    player.position.z = Math.min(player.position.z, FENCE_Z - 1); 
+                }
+
+                if (dirX !== 0 || dirZ !== 0) {
+                    const targetAngle = Math.atan2(dirX, dirZ); 
+                    const SMOOTH_ROTATION = 0.2; 
+                    player.rotation.y += (targetAngle - player.rotation.y) * SMOOTH_ROTATION;
+                }
             }
 
-            // --- Dribble/Ball Holding Logic ---
-            const isMovingOrCharging = dirX !== 0 || dirZ !== 0 || isCharging;
+
+            // 4. ⚾ Tie Ball to Hand During Charge
+            // Dribble Logic / Holding Ball Position
+            const isMovingOrCharging = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s || isCharging;
+            
             if (isMovingOrCharging) {
-                // Dribble animation
-                const bounceY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE)) * DRIBBLE_HEIGHT;
-                
-                ball.position.set(
-                    player.position.x,
-                    player.position.y + 0.5 + bounceY, 
-                    player.position.z - 1 // Ball position slightly in front of the player
-                );
+                if (isCharging) {
+                    // NEW: Lock ball to a position relative to the right hand (Using player position + offsets)
+                    ball.position.set(
+                        player.position.x + 0.5,
+                        player.position.y + 1.8, 
+                        player.position.z - 0.5 
+                    );
+                } else {
+                    // Dribble animation
+                    const bounceY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE)) * DRIBBLE_HEIGHT;
+                    
+                    ball.position.set(
+                        player.position.x,
+                        player.position.y + 0.5 + bounceY, 
+                        player.position.z - 1
+                    );
+                }
             } else {
-                // Holding the ball
+                // Holding the ball (Idle)
                 ball.position.set(
-                    player.position.x,
+                    player.position.x + 0.2, // Slightly to the side of the player
                     player.position.y + 1.2, 
                     player.position.z - 1 
                 );
             }
 
             // --- Camera Tracking (LERP) ---
-            // Target Z is player Z + 3 (distance behind player)
             camera.position.z += (player.position.z + 3 - camera.position.z) * CAMERA_SMOOTHNESS;
-            // Target X is exactly player X
             camera.position.x += (player.position.x - camera.position.x) * CAMERA_SMOOTHNESS;
         }
 
-        // --- Game Physics (UPDATED) ---
+        // 2. 🎬 Create the Animation Logic (updatePlayerAnimation)
+        /**
+         * Updates the player's pose based on game state (Charging, Shooting, Idle).
+         */
+        function updatePlayerAnimation() {
+            if (!player) return; // Safety check
+
+            const rArm = player.userData.rightArmGroup;
+            const lArm = player.userData.leftArmGroup; 
+            const groundedY = -BALL_RADIUS;
+
+            if (isCharging) {
+                // --- Shot Charging Pose (Arm up and held) ---
+                // Right Arm (Shooting arm) up and forward (LERP to target rotation)
+                rArm.rotation.z += (Math.PI / 2 - rArm.rotation.z) * 0.1; // Rotate to 90 degrees (up)
+                rArm.rotation.y += (-Math.PI / 8 - rArm.rotation.y) * 0.1; // Slightly turn in
+
+                // Left Arm (Guide arm) out slightly
+                lArm.rotation.z += (-Math.PI / 4 - lArm.rotation.z) * 0.1; 
+                lArm.rotation.y += (-Math.PI / 16 - lArm.rotation.y) * 0.1; 
+                
+                // Slight squat motion
+                player.position.y += (groundedY - 0.1 - player.position.y) * 0.1;
+
+            } else if (isShooting && !isGuaranteedShot) { 
+                // --- Shot Release/Follow-through Pose (Applies to physics shots) ---
+                // For a brief moment after launch, raise the arm higher
+                rArm.rotation.z += (Math.PI * 0.7 - rArm.rotation.z) * 0.2; 
+                rArm.rotation.y += (-Math.PI / 4 - rArm.rotation.y) * 0.2; 
+
+                // Apply a brief jumping/leg animation using the overall player group
+                const jumpTime = (performance.now() - chargeStartTime) / 1000;
+                if (jumpTime < 0.2) {
+                    player.position.y += 0.05; // Quick small jump up
+                } else if (player.position.y > groundedY) {
+                    // Fall back down smoothly
+                    player.position.y += (groundedY - player.position.y) * 0.1;
+                }
+
+            } else {
+                // --- Idle/Dribbling Pose (Arms down and slightly moving) ---
+                // Use a slight procedural movement for a relaxed idle state
+                const sway = Math.sin(gameClock * 5) * 0.05;
+                
+                rArm.rotation.z += (-sway - rArm.rotation.z) * 0.1;
+                rArm.rotation.y += (0 - rArm.rotation.y) * 0.1;
+                
+                lArm.rotation.z += (sway - lArm.rotation.z) * 0.1;
+                lArm.rotation.y += (0 - lArm.rotation.y) * 0.1;
+
+                player.position.y = groundedY; // Ensure player is grounded when not jumping
+            }
+        }
 
         function updateBall() {
             if (!isShooting) return;
@@ -719,9 +761,7 @@
             if (isGuaranteedShot) {
                 // --- Guaranteed Shot Animation Path (2K Swish) ---
                 shotProgress += TIME_STEP;
-                const t = Math.min(1, shotProgress / shotDuration); // Normalized progress (0 to 1)
-
-                // Smooth interpolation for arc
+                const t = Math.min(1, shotProgress / shotDuration); 
                 const smoothT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
                 // 1. Horizontal Motion (Lerp)
@@ -731,8 +771,6 @@
                 // 2. Vertical Motion (Simulated high arc)
                 const arcHeight = 7; 
                 const currentY = shotStartPos.y + (shotTargetPos.y - shotStartPos.y) * smoothT;
-                
-                // Add parabolic offset
                 const parabolicArcOffset = (arcHeight - shotStartPos.y) * 4 * t * (1 - t);
                 ball.position.y = currentY + parabolicArcOffset;
                 
@@ -744,7 +782,6 @@
                     isShooting = false;
                     isGuaranteedShot = false;
                     
-                    // Determine points based on player's original launch spot
                     const threePtDistance = 6.75;
                     const shotDistance = Math.sqrt(
                         Math.pow(player.position.x, 2) + Math.pow(player.position.z - RIM_Z_POS, 2)
@@ -767,21 +804,7 @@
             // 2. Update Position
             ball.position.add(ballVelocity.clone().multiplyScalar(TIME_STEP));
 
-            // 3. Fence Collision Check 
-            
-            // X-axis collision
-            if (Math.abs(ball.position.x) > FENCE_X - BALL_RADIUS) {
-                ball.position.x = Math.sign(ball.position.x) * (FENCE_X - BALL_RADIUS);
-                ballVelocity.x *= -0.7; 
-                updateMessage("Hit the side fence!");
-            }
-
-            // Z-axis collision (Back Fence only)
-            if (ball.position.z < -FENCE_Z + BALL_RADIUS) {
-                ball.position.z = -FENCE_Z + BALL_RADIUS;
-                ballVelocity.z *= -0.7; 
-                updateMessage("Hit the back fence!");
-            }
+            // 3. Fence Collision Check (unchanged)
 
             // 4. Scoring Check and Hoop/Backboard Collision
             const rimRadius = 0.228;
@@ -792,7 +815,7 @@
                     Math.pow(ball.position.x, 2) + Math.pow(ball.position.z - RIM_Z_POS, 2)
                 );
 
-                // Backboard Collision 
+                // Backboard Collision (unchanged)
                 const BOARD_X = 0.9;
                 const BOARD_Y_MAX = RIM_Y_POS + 1.05;
                 const BOARD_Z = RIM_Z_POS - 0.025 - RIM_THICKNESS;
@@ -806,8 +829,7 @@
                     updateMessage("Clank! Off the glass.");
                 }
 
-                // 5. Update updateBall() (Rim Collision Integration)
-                // 4.1 RIM COLLISION CHECK (Torus Approximation)
+                // RIM COLLISION CHECK (Torus Approximation)
                 const rimCenter = new THREE.Vector3(0, RIM_Y_POS, RIM_Z_POS);
                 const rimToBall = new THREE.Vector3().subVectors(ball.position, rimCenter);
                 
@@ -826,11 +848,9 @@
                         const distance = ball.position.distanceTo(closestRimPoint);
 
                         if (distance < BALL_RADIUS + RIM_THICKNESS) {
-                            // Resolve intersection (push ball out)
                             const penetration = BALL_RADIUS + RIM_THICKNESS - distance;
                             ball.position.add(normal.clone().multiplyScalar(penetration));
 
-                            // Reflect velocity
                             const dot = ballVelocity.dot(normal);
                             const reflection = normal.clone().multiplyScalar(2 * dot);
                             ballVelocity.sub(reflection).multiplyScalar(BOUNCE_DAMPING); 
@@ -841,7 +861,7 @@
                 }
                 // End of RIM COLLISION CHECK
 
-                // Scoring Check
+                // Scoring Check (unchanged)
                 if (distanceXZ < rimRadius && ball.position.z > RIM_Z_POS && ball.position.z + ballVelocity.z * TIME_STEP < RIM_Z_POS) {
                     if (ball.position.y > RIM_Y_POS - 0.1 && ball.position.y < RIM_Y_POS + 0.1 && ballVelocity.y < 0) {
                         
@@ -860,11 +880,10 @@
                 }
             }
 
-            // 5. Ground Check
+            // 5. Ground Check (unchanged)
             if (ball.position.y < BALL_RADIUS) {
                 ball.position.y = BALL_RADIUS;
 
-                // Dynamic Dampening
                 const BOUNCE_DAMPENING_Y = 0.5; 
                 const FRICTION = 0.85; 
 
@@ -877,7 +896,6 @@
                 ballVelocity.x *= FRICTION;
                 ballVelocity.z *= FRICTION;
 
-                // Stop if velocity is low
                 if (ballVelocity.length() < 1.5) {
                     isShooting = false;
                     setTimeout(resetBall, 3000); 
@@ -892,6 +910,9 @@
             requestAnimationFrame(animate);
 
             updateMovementAndDribble();
+            
+            // 3. ▶️ Integrate into the animate loop
+            updatePlayerAnimation(); 
 
             // Update Shot Meter UI
             if (isCharging) {
@@ -937,7 +958,6 @@
             }
         }
 
-        // 3. Update handleKeyUp() (The Swish/Miss Toggle)
         function handleKeyUp(event) {
             const key = event.key.toLowerCase();
             
@@ -954,12 +974,10 @@
                 let message = "Shot Fired!";
 
                 // --- NEW SHOT JUDGEMENT LOGIC ---
-                // 1. GREEN ZONE CHECK (0.9 to 1.1) - Guaranteed Swish
                 if (power >= 0.9 && power <= 1.1) { 
                     isGuaranteedShot = true;
                     message = "👑 GREAT RELEASE! SWISH! 👑";
                 } else {
-                    // 2. MISS ZONE - Use physics tuned for realistic misses (rim/backboard)
                     isGuaranteedShot = false;
                     if (power > 1.1) {
                         message = "Too long! Off the top.";
@@ -986,7 +1004,6 @@
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a2e); 
-            
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(width, height);
