@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Streetball Shooter</title>
-    <!-- Load Three.js library -->
+    <title>3D Streetball Shooter - Improved</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
@@ -121,7 +120,6 @@
         <div id="instructions">
             Use **W, A, S, D** to dribble and move. **HOLD E** to charge shot, **RELEASE E** to shoot!
         </div>
-        <!-- Shot Meter UI -->
         <div id="shot-meter-container">
             <div id="shot-bar"></div>
             <div id="shot-target"></div>
@@ -141,7 +139,7 @@
         // State for Shot Meter and Perfect Shot Animation
         let isCharging = false;
         let chargeStartTime = 0;
-        const MAX_CHARGE_TIME = 1.5; // 1.5 seconds for full power
+        const MAX_CHARGE_TIME = 1.5; // 1.5 seconds for full power (1.0)
         let isGuaranteedShot = false; 
         let shotProgress = 0;
         let shotStartPos = new THREE.Vector3();
@@ -441,16 +439,16 @@
             updateMovementAndDribble(); 
         }
 
-        // --- SHOOT FUNCTION ---
+        // --- SHOOT FUNCTION (UPDATED) ---
 
         /**
-         * Launches the ball with velocity determined by the charge power.
+         * Launches the ball with velocity determined by the charge power and calculated trajectory.
          * @param {number} power - The charge factor (0 to >1.0). 1.0 is the ideal power.
          */
         function launchBall(power) {
             if (isShooting) return;
 
-            // 1. Set the initial launch position (common for both perfect and physics shots)
+            // 1. Set the initial launch position (player's hand height)
             ball.position.set(
                 player.position.x,
                 player.position.y + 1.8, // Hand height
@@ -470,30 +468,69 @@
                 return;
             }
 
-            // --- Standard Physics Launch for MISSES ---
+            // --- Standard Physics Launch for MISSES (IMPROVED) ---
             
-            const VELOCITY_SCALE = Math.min(1.5, power); 
-            const distZ = Math.max(1, player.position.z - RIM_Z_POS); 
+            const shotStart = ball.position;
+            const target = shotTargetPos; // Center of the rim (0, 3.05, -8)
+            const delta = target.clone().sub(shotStart);
+            const distXZ = Math.sqrt(delta.x * delta.x + delta.z * delta.z); // Horizontal distance
             
-            // Base values for an "ideal" 1.0 power shot
-            const base_vz = distZ * 0.85; 
-            const base_vy = 13 + distZ * 0.5; 
+            // 2. Determine Ideal Launch Velocity based on a target apex height
             
-            // Apply power scaling to velocity
-            const vz = base_vz * VELOCITY_SCALE; 
-            const vy = base_vy * VELOCITY_SCALE; 
-            
-            // Lateral error based on power timing (0.9-1.1 is perfect)
-            let dx = 0;
-            const idealPower = 1.0;
-            
-            if (power < idealPower - 0.1 || power > idealPower + 0.1) {
-                 const errorFactor = Math.abs(power - idealPower) * 3; 
-                 // Random lateral push for missed timing
-                 dx = (Math.random() - 0.5) * 0.7 * errorFactor; 
-            }
+            // Higher apex for longer shots, scaled to be slightly lower than player launch height + distance factor
+            const APEX_HEIGHT = 4.0 + Math.min(3.0, distXZ * 0.6); 
+            const targetY = target.y;
+            const startY = shotStart.y;
+            const gravityMag = -GRAVITY.y;
 
-            ballVelocity.set(dx, vy, -vz); 
+            // Vertical velocity (Vy) needed to reach APEX_HEIGHT
+            let vy_ideal = Math.sqrt(2 * gravityMag * (APEX_HEIGHT - startY));
+
+            // Time to reach apex (t_apex = vy/|g|)
+            let t_apex = vy_ideal / gravityMag;
+
+            // Time from apex to target height (t_fall = sqrt(2 * (ApexY - TargetY) / |g|))
+            let t_fall = Math.sqrt(2 * (APEX_HEIGHT - targetY) / gravityMag);
+
+            // Total time of flight (t_flight = t_apex + t_fall)
+            let t_flight = t_apex + t_fall;
+
+            // Horizontal velocity required (Vxz = distXZ / t_flight)
+            let vxz_ideal = distXZ / t_flight;
+            
+            // 3. Apply Power and Error
+            const idealPower = 1.0;
+            const powerError = power - idealPower;
+            const errorFactor = Math.abs(powerError);
+
+            // Velocity Scaling: Scale the trajectory. Overcharge is faster/flatter; undercharge is slower/higher.
+            // Scale velocity less aggressively than 1:1, otherwise shots fly too far/short.
+            const vScale = 1.0 + powerError * 0.5; 
+
+            // Calculate ideal velocity components
+            let vx_ideal = delta.x / distXZ * vxz_ideal;
+            let vz_ideal = delta.z / distXZ * vxz_ideal;
+            
+            ballVelocity.x = vx_ideal * vScale;
+            ballVelocity.z = vz_ideal * vScale;
+            ballVelocity.y = vy_ideal * vScale;
+            
+            // Positional Error (Drift)
+            // Difficulty is scaled by distance: longer shots amplify error.
+            const difficultyScale = Math.min(3.0, distXZ / 4); 
+
+            // Introduce lateral error (left/right) based on power timing
+            // Random direction * Error Factor * Base Sensitivity * Difficulty Scale
+            let lateralError = (Math.random() - 0.5) * errorFactor * 1.5 * difficultyScale;
+            ballVelocity.x += lateralError;
+
+            // Introduce vertical error (affects distance/back/front)
+            // Only apply a small random vertical error based on the timing error.
+            let verticalError = (Math.random() - 0.5) * errorFactor * 0.2 * difficultyScale;
+            ballVelocity.y += verticalError; 
+
+            // Ensure the Z component is negative (shooting towards the hoop at Z=-8)
+            ballVelocity.z = -Math.abs(ballVelocity.z); 
         }
 
         // --- Core Initialization ---
@@ -653,7 +690,7 @@
             camera.position.x = player.position.x;
         }
 
-        // --- Game Physics ---
+        // --- Game Physics (UPDATED) ---
 
         function updateBall() {
             if (!isShooting) return;
@@ -663,7 +700,7 @@
                 shotProgress += TIME_STEP;
                 const t = Math.min(1, shotProgress / shotDuration); // Normalized progress (0 to 1)
 
-                // Smooth interpolation
+                // Smooth interpolation for arc
                 const smoothT = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
                 // 1. Horizontal Motion (Lerp)
@@ -725,7 +762,7 @@
                 updateMessage("Hit the back fence!");
             }
 
-            // 4. Scoring Check and Hoop/Backboard Collision (Same logic as before for bounces)
+            // 4. Scoring Check and Hoop/Backboard Collision
             const rimRadius = 0.228;
             const HOOP_TOLERANCE = 0.5;
 
@@ -733,6 +770,20 @@
                 const distanceXZ = Math.sqrt(
                     Math.pow(ball.position.x, 2) + Math.pow(ball.position.z - RIM_Z_POS, 2)
                 );
+
+                // Backboard Collision 
+                const BOARD_X = 0.9;
+                const BOARD_Y_MAX = RIM_Y_POS + 1.05;
+                const BOARD_Z = RIM_Z_POS - 0.025;
+                const BALL_Z = ball.position.z;
+
+                if (BALL_Z < BOARD_Z + BALL_RADIUS && BALL_Z > BOARD_Z - BALL_RADIUS &&
+                    ball.position.x > -BOARD_X - BALL_RADIUS && ball.position.x < BOARD_X + BALL_RADIUS &&
+                    ball.position.y > RIM_Y_POS && ball.position.y < BOARD_Y_MAX)
+                {
+                    ballVelocity.z *= -0.7; 
+                    updateMessage("Clank! Off the glass.");
+                }
 
                 // Score on physics path
                 if (distanceXZ < rimRadius && ball.position.z > RIM_Z_POS && ball.position.z + ballVelocity.z * TIME_STEP < RIM_Z_POS) {
@@ -751,33 +802,31 @@
                         return;
                     }
                 }
-
-                // Backboard Collision 
-                const BOARD_X = 0.9;
-                const BOARD_Y_MAX = RIM_Y_POS + 1.05;
-                const BOARD_Z = RIM_Z_POS - 0.025;
-                const BALL_Z = ball.position.z;
-
-                if (BALL_Z < BOARD_Z + BALL_RADIUS && BALL_Z > BOARD_Z - BALL_RADIUS &&
-                    ball.position.x > -BOARD_X - BALL_RADIUS && ball.position.x < BOARD_X + BALL_RADIUS &&
-                    ball.position.y > RIM_Y_POS && ball.position.y < BOARD_Y_MAX)
-                {
-                    ballVelocity.z *= -0.7; 
-                    updateMessage("Clank! Off the glass.");
-                }
             }
 
-            // 5. Ground Check
+            // 5. Ground Check (IMPROVED)
             if (ball.position.y < BALL_RADIUS) {
                 ball.position.y = BALL_RADIUS;
-                ballVelocity.y *= -0.5; 
-                ballVelocity.x *= 0.8;
-                ballVelocity.z *= 0.8;
 
-                if (ballVelocity.length() < 1) {
+                // Dynamic Dampening
+                const BOUNCE_DAMPENING_Y = 0.5; // Base Coefficient of Restitution
+                const FRICTION = 0.85; // Base friction
+
+                // Apply slightly more dampening on hard, high-velocity hits
+                let actualDampening = BOUNCE_DAMPENING_Y; 
+                if (Math.abs(ballVelocity.y) > 10) { 
+                    actualDampening = 0.4;
+                }
+
+                ballVelocity.y *= -actualDampening; 
+                ballVelocity.x *= FRICTION;
+                ballVelocity.z *= FRICTION;
+
+                // Stop if velocity is low (increased threshold for a quicker stop)
+                if (ballVelocity.length() < 1.5) {
                     isShooting = false;
                     setTimeout(resetBall, 3000); 
-                    updateMessage("Ball stopped. Ready to shoot again.");
+                    updateMessage("Ball settled. Ready to shoot again.");
                 }
             }
         }
@@ -795,10 +844,10 @@
                 let powerPercentage = Math.min(100, (chargeDuration / MAX_CHARGE_TIME) * 100);
                 
                 if (chargeDuration > MAX_CHARGE_TIME) {
-                     // Visual pulse for overcharge
-                     const pulseFactor = 1.0 + Math.abs(Math.sin(gameClock * 15)) * 0.1; 
-                     document.getElementById('shot-bar').style.width = `${100 * pulseFactor}%`;
-                     document.getElementById('shot-meter-container').style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.9)';
+                    // Visual pulse for overcharge
+                    const pulseFactor = 1.0 + Math.abs(Math.sin(gameClock * 15)) * 0.1; 
+                    document.getElementById('shot-bar').style.width = `${100 * pulseFactor}%`;
+                    document.getElementById('shot-meter-container').style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.9)';
                 } else {
                     document.getElementById('shot-bar').style.width = `${powerPercentage}%`;
                     document.getElementById('shot-meter-container').style.boxShadow = '0 0 10px rgba(0, 255, 0, 0.5)';
