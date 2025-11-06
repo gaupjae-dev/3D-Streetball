@@ -1,29 +1,42 @@
-// main.js (Robust Version with Imports)
+// main.js (Complete, Module-Ready, Bouncing Code)
 
-// ----------------------------------------------------
-// ADD THESE TWO IMPORT LINES AT THE VERY TOP OF main.js
-// ----------------------------------------------------
+// ----------------------------------------------------------------------
+// 1. MODULE IMPORTS (Must be the first lines in a type="module" script)
+// ----------------------------------------------------------------------
 import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
 import * as CANNON from 'https://unpkg.com/cannon-es@0.19.0/dist/cannon-es.js';
-// ----------------------------------------------------
 
-
-// 1. GLOBAL VARIABLES
+// 2. GLOBAL VARIABLES
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer();
 
-const world = new CANNON.World({ // Line 8: CANNON is now defined by the import!
+const world = new CANNON.World({
     gravity: new CANNON.Vec3(0, -9.82, 0)
 });
-// ... rest of the code follows ...
+
 let basketballMesh;
 let basketballBody;
 
-// 2. INITIAL SETUP
+// 3. PHYSICS MATERIALS (For Bouncing)
+const ballMaterial = new CANNON.Material('ballMaterial');
+const courtMaterial = new CANNON.Material('courtMaterial');
+
+const ballCourtContactMaterial = new CANNON.ContactMaterial(
+    ballMaterial,
+    courtMaterial,
+    {
+        friction: 0.1,    
+        restitution: 0.75 // This value dictates the bounce
+    }
+);
+world.addContactMaterial(ballCourtContactMaterial);
+
+
+// 4. INITIAL SETUP
 function setupScene() {
     // SCENE & RENDERER
-    scene.background = new THREE.Color(0x87ceeb);
+    scene.background = new THREE.Color(0x87ceeb); // Sky color
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
@@ -39,7 +52,7 @@ function setupScene() {
     scene.add(directionalLight);
 }
 
-// 3. OBJECT CREATION FUNCTIONS
+// 5. OBJECT CREATION FUNCTIONS
 
 function createCourt() {
     // THREE.js MESH
@@ -53,7 +66,11 @@ function createCourt() {
     
     // CANNON.js BODY
     const courtShape = new CANNON.Plane();
-    const courtBody = new CANNON.Body({ mass: 0, shape: courtShape });
+    const courtBody = new CANNON.Body({ 
+        mass: 0, 
+        shape: courtShape,
+        material: courtMaterial // Assign material
+    });
     courtBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     world.addBody(courtBody);
 }
@@ -66,19 +83,20 @@ function createBall() {
     const ball = new THREE.Mesh(geometry, material);
     ball.position.set(0, 5, 0);
     scene.add(ball);
-    basketballMesh = ball; // Assign to global variable
+    basketballMesh = ball;
 
     // CANNON.js BODY
     const ballShape = new CANNON.Sphere(radius);
     basketballBody = new CANNON.Body({ 
         mass: 5, 
         shape: ballShape, 
-        position: new CANNON.Vec3(0, 5, 0) 
+        position: new CANNON.Vec3(0, 5, 0),
+        material: ballMaterial // Assign material
     });
-    world.addBody(basketballBody); // Assign to global variable
+    world.addBody(basketballBody);
 }
 
-// 4. ANIMATION LOOP
+// 6. ANIMATION LOOP
 
 const timeStep = 1 / 60;
 
@@ -97,8 +115,7 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-// 5. INITIALIZE THE GAME
-
+// 7. INITIALIZE THE GAME
 setupScene();
 createCourt();
 createBall();
