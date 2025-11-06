@@ -69,17 +69,46 @@
             width: 100%;
             height: 100%;
         }
-        /* Shot indicator is no longer used for shooting but keeping the style for now */
-        .shot-indicator {
+        /* Shot Meter Styling */
+        #shot-meter-container {
             position: absolute;
-            width: 4px;
-            height: 4px;
-            background-color: #f7a000;
-            border-radius: 50%;
-            opacity: 0;
-            transition: opacity 0.1s;
+            bottom: 50px; 
+            left: 50%;
+            transform: translateX(-50%);
+            width: 250px;
+            height: 20px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            border: 2px solid #ffffff;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+            overflow: hidden;
+            z-index: 20;
+            display: none; /* Initially hidden */
+        }
+        #shot-bar {
+            height: 100%;
+            width: 0%;
+            /* Gradient: Red (too little) -> Yellow (good) -> Green (perfect) -> Yellow -> Red (too much) */
+            background: linear-gradient(90deg, 
+                rgba(255, 0, 0, 0.9), 
+                rgba(255, 255, 0, 0.9) 40%, 
+                rgba(0, 255, 0, 0.9) 50%, 
+                rgba(255, 255, 0, 0.9) 60%, 
+                rgba(255, 0, 0, 0.9) 100%
+            );
+            transition: width 0.01s linear;
+        }
+        #shot-target {
+            position: absolute;
+            top: 0;
+            left: 45%; 
+            width: 10%;
+            height: 100%;
+            border-left: 2px solid rgba(0, 0, 0, 0.8);
+            border-right: 2px solid rgba(0, 0, 0, 0.8);
+            box-sizing: border-box;
+            background: rgba(255, 255, 255, 0.1);
             pointer-events: none;
-            z-index: 5;
         }
     </style>
 </head>
@@ -90,7 +119,12 @@
             <div id="message">Streetball Ready!</div>
         </div>
         <div id="instructions">
-            Use **W, A, S, D** to dribble and move. Press **E** to shoot!
+            Use **W, A, S, D** to dribble and move. **HOLD E** to charge shot, **RELEASE E** to shoot!
+        </div>
+        <!-- Shot Meter UI (New) -->
+        <div id="shot-meter-container">
+            <div id="shot-bar"></div>
+            <div id="shot-target"></div>
         </div>
     </div>
 
@@ -104,6 +138,11 @@
         const GRAVITY = new THREE.Vector3(0, -9.8, 0); // Approx gravity (m/s^2)
         const TIME_STEP = 1/60; // Fixed physics step
 
+        // New variables for Shot Meter and power
+        let isCharging = false;
+        let chargeStartTime = 0;
+        const MAX_CHARGE_TIME = 1.5; // 1.5 seconds for full power (100% force)
+
         // Variables for movement and dribbling
         const PLAYER_SPEED = 0.15; 
         const DRIBBLE_HEIGHT = 0.6; 
@@ -115,6 +154,10 @@
         const BALL_RADIUS = 0.24;
         const RIM_Y_POS = 3.05; // Standard hoop height
         const RIM_Z_POS = -8; // Distance from the camera
+        
+        // Court Boundaries for fence
+        const FENCE_X = 15;
+        const FENCE_Z = 20;
 
         // --- Utility Functions ---
 
@@ -133,7 +176,41 @@
             return shape;
         }
 
-        // --- Game Object Creation (Court, Hoop, Ball, Player are unchanged) ---
+        // --- Fence Creation (NEW) ---
+        function createFences() {
+            const FENCE_HEIGHT = 5;
+            const FENCE_THICKNESS = 0.1;
+            const fenceMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0x4a4a4a, 
+                transparent: true, 
+                opacity: 0.8,
+                side: THREE.DoubleSide
+            });
+
+            const lineY = -BALL_RADIUS + 0.005; 
+            const wallY = lineY + FENCE_HEIGHT / 2;
+
+            // Side Walls (Z=40 long)
+            const sideWallGeo = new THREE.BoxGeometry(FENCE_THICKNESS, FENCE_HEIGHT, 40);
+
+            // Left Side Fence (at X = -15)
+            const leftFence = new THREE.Mesh(sideWallGeo, fenceMaterial);
+            leftFence.position.set(-FENCE_X, wallY, 0);
+            scene.add(leftFence);
+
+            // Right Side Fence (at X = 15)
+            const rightFence = new THREE.Mesh(sideWallGeo, fenceMaterial);
+            rightFence.position.set(FENCE_X, wallY, 0);
+            scene.add(rightFence);
+
+            // Back Baseline Wall (at Z = -20)
+            const baseWallGeo = new THREE.BoxGeometry(30.1 + FENCE_THICKNESS, FENCE_HEIGHT, FENCE_THICKNESS); 
+            const backFence = new THREE.Mesh(baseWallGeo, fenceMaterial);
+            backFence.position.set(0, wallY, -FENCE_Z);
+            scene.add(backFence);
+        }
+
+        // --- Game Object Creation ---
 
         function createCourt() {
             // 1. Ground Plane (Asphalt/Concrete look)
@@ -144,6 +221,9 @@
             court.position.y = -BALL_RADIUS; 
             scene.add(court);
 
+            // Add Fences
+            createFences(); 
+
             // 2. Court Lines
             const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
             const lineY = -BALL_RADIUS + 0.005;
@@ -152,15 +232,12 @@
             const threePtRadius = 6.75;
             const threePtCenterZ = RIM_Z_POS; // -8
             const wingX = 6.75; // X position for the wings
-            const wingZMax = 15; // Extends back to Z=15 
 
             // Arc segment
-            // Using a large arc starting and ending well below the hoop
             const arcShape = new THREE.Shape();
-            // Start angle (approx 150 degrees) and End angle (approx 30 degrees)
             arcShape.absarc(0, threePtCenterZ, threePtRadius, Math.PI * 0.35, Math.PI * 0.65, true); 
 
-            const arcPoints = arcShape.getPoints(50); // 50 segments for smooth curve
+            const arcPoints = arcShape.getPoints(50); 
             const arcGeometry = new THREE.BufferGeometry().setFromPoints(arcPoints);
             const arcMesh = new THREE.Line(arcGeometry, lineMaterial);
             arcMesh.position.y = lineY;
@@ -168,43 +245,36 @@
             scene.add(arcMesh);
 
             // Straight lines (3-point wings)
-            const wingLineLength = wingZMax - (RIM_Z_POS + threePtRadius * Math.cos(Math.PI * 0.35)); // Calculate the length needed
-            const wingLineGeo = new THREE.BoxGeometry(0.1, 0.01, 12); // Approximate size
+            const wingLineGeo = new THREE.BoxGeometry(0.1, 0.01, 12); 
 
             const leftWing = new THREE.Mesh(wingLineGeo, lineMaterial);
-            leftWing.position.set(-wingX, lineY, 3); // Positioned manually for visual fit
+            leftWing.position.set(-wingX, lineY, 3); 
             scene.add(leftWing);
 
             const rightWing = new THREE.Mesh(wingLineGeo, lineMaterial);
-            rightWing.position.set(wingX, lineY, 3); // Positioned manually for visual fit
+            rightWing.position.set(wingX, lineY, 3); 
             scene.add(rightWing);
 
-
             // --- Out-of-Bounds Lines (Perimeter) ---
-            // Court size: X=30, Z=40. Center at (0, 0, 0).
-            const courtX = 15; // X boundary
-            const courtZ = 20; // Z boundary
-
-            // Left/Right Sidelines (Z=40 long)
+            const baseLineGeo = new THREE.BoxGeometry(30.1, 0.01, 0.1); 
             const sideLineGeo = new THREE.BoxGeometry(0.1, 0.01, 40);
 
+            // Sidelines
             const leftSide = new THREE.Mesh(sideLineGeo, lineMaterial);
-            leftSide.position.set(-courtX, lineY, 0);
+            leftSide.position.set(-FENCE_X, lineY, 0);
             scene.add(leftSide);
 
             const rightSide = new THREE.Mesh(sideLineGeo, lineMaterial);
-            rightSide.position.set(courtX, lineY, 0);
+            rightSide.position.set(FENCE_X, lineY, 0);
             scene.add(rightSide);
 
-            // Top/Bottom Baselines (X=30 wide)
-            const baseLineGeo = new THREE.BoxGeometry(30.1, 0.01, 0.1); // Slightly wider to meet sidelines
-
-            const frontBase = new THREE.Mesh(baseLineGeo, lineMaterial); // Far from hoop (Z=20)
-            frontBase.position.set(0, lineY, courtZ);
+            // Baselines
+            const frontBase = new THREE.Mesh(baseLineGeo, lineMaterial); 
+            frontBase.position.set(0, lineY, FENCE_Z);
             scene.add(frontBase);
 
-            const backBase = new THREE.Mesh(baseLineGeo, lineMaterial); // Behind the hoop (Z=-20)
-            backBase.position.set(0, lineY, -courtZ);
+            const backBase = new THREE.Mesh(baseLineGeo, lineMaterial); 
+            backBase.position.set(0, lineY, -FENCE_Z);
             scene.add(backBase);
         }
 
@@ -301,40 +371,60 @@
         function resetBall() {
             ballVelocity.set(0, 0, 0);
             isShooting = false;
-            // Updated message
-            updateMessage("Ready to shoot! Press W, A, S, or D to move, E to shoot.");
+            // Hide the meter when shot is reset
+            document.getElementById('shot-meter-container').style.display = 'none';
+            
+            updateMessage("Ready to shoot! Hold and Release E!");
             
             // Immediately place ball in player's hands
             updateMovementAndDribble(); 
         }
 
-        // --- SHOOT FUNCTION ---
+        // --- SHOOT FUNCTION (UPDATED for variable power) ---
 
         /**
-         * Simulates launching the ball with a calculated velocity for a high arc shot.
+         * Launches the ball with velocity determined by the charge power.
+         * @param {number} power - The charge factor (0 to >1.0). 1.0 is the ideal power for distance.
          */
-        function shootBall() {
+        function launchBall(power) {
             if (isShooting) return;
+
+            // Scale factor for velocity based on power (Clamping for velocity max, but keeping error logic based on raw power)
+            const VELOCITY_SCALE = Math.min(1.5, power); 
 
             // Calculate distance to the hoop (Z-target is RIM_Z_POS = -8)
             const distZ = Math.max(1, player.position.z - RIM_Z_POS); 
             
-            // 1. Set the initial launch position based on the player's current location
+            // 1. Set the initial launch position
             ball.position.set(
                 player.position.x,
-                player.position.y + 1.8, // Hand height for launch (approx 1.8m off the ground)
-                player.position.z - 0.5 // Launch slightly in front of the player
+                player.position.y + 1.8, 
+                player.position.z - 0.5 
             ); 
 
-            // 2. Determine Initial Velocity for a high arc
-            const vz = distZ * 0.9; 
-            const vy = 12 + distZ * 0.4; 
+            // 2. Determine Initial Velocity components (Base values for an "ideal" 1.0 power shot)
+            const base_vz = distZ * 0.9; 
+            const base_vy = 12 + distZ * 0.4; 
             
+            // Apply power scaling to velocity
+            const vz = base_vz * VELOCITY_SCALE; 
+            const vy = base_vy * VELOCITY_SCALE; 
+            
+            // Lateral error based on how far 'power' is from the ideal 1.0 (Green zone is 0.9-1.1)
+            let dx = 0;
+            const idealPower = 1.0;
+            
+            if (power < idealPower - 0.1 || power > idealPower + 0.1) {
+                 // Error is greater the further the power is from 1.0
+                 const errorFactor = Math.abs(power - idealPower) * 3; 
+                 // Random lateral push
+                 dx = (Math.random() - 0.5) * 0.5 * errorFactor; 
+            }
+
             // Apply velocity (Negative Z is towards the hoop)
-            ballVelocity.set(0, vy, -vz); 
+            ballVelocity.set(dx, vy, -vz); 
 
             isShooting = true;
-            updateMessage("Shot Fired (E-Key Arc Shot)! Good luck!");
         }
 
         // --- Core Initialization ---
@@ -374,10 +464,8 @@
             createBall();
             resetBall(); 
 
-            // Event Listeners (Removed pointer events for shooting)
+            // Event Listeners
             window.addEventListener('resize', onWindowResize);
-            
-            // Input event listeners for movement and shooting
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('keyup', handleKeyUp);
 
@@ -391,52 +479,55 @@
             
             if (isShooting) return;
 
-            // W - Forward movement
-            if (key === 'w') {
-                keysPressed.w = true;
+            // W, A, S, D movement
+            if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+                keysPressed[key] = true;
                 updateMessage("Dribbling!");
             }
-            // A - Left movement
-            if (key === 'a') {
-                keysPressed.a = true;
-                updateMessage("Dribbling!");
-            }
-            // S - Backward movement
-            if (key === 's') {
-                keysPressed.s = true;
-                updateMessage("Dribbling!");
-            }
-            // D - Right movement
-            if (key === 'd') {
-                keysPressed.d = true;
-                updateMessage("Dribbling!");
-            }
-            // E - Shoot
-            if (key === 'e') {
-                shootBall();
+            
+            // E - Charge shot
+            if (key === 'e' && !isCharging) {
+                isCharging = true;
+                chargeStartTime = performance.now();
+                document.getElementById('shot-meter-container').style.display = 'block';
+                updateMessage("Charging Shot...");
             }
         }
 
         function handleKeyUp(event) {
             const key = event.key.toLowerCase();
             
-            if (key === 'w') {
-                keysPressed.w = false;
-            }
-            if (key === 'a') {
-                keysPressed.a = false;
-            }
-            // S - Backward movement stop
-            if (key === 's') {
-                keysPressed.s = false;
-            }
-            if (key === 'd') {
-                keysPressed.d = false;
+            // W, A, S, D movement stop
+            if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+                keysPressed[key] = false;
             }
 
+            // E - Release shot
+            if (key === 'e' && isCharging) {
+                isCharging = false;
+                document.getElementById('shot-meter-container').style.display = 'none';
+
+                const chargeDuration = (performance.now() - chargeStartTime) / 1000;
+                const power = chargeDuration / MAX_CHARGE_TIME;
+                
+                let message = "Shot Fired!";
+
+                // 0.9 to 1.1 is the green zone (45% to 55% of the bar width is the target)
+                if (power >= 0.9 && power <= 1.1) { 
+                    message = "🔥 Great Release! 🔥";
+                } else if (power > 1.1) {
+                    message = "Too long! Less power next time.";
+                } else if (power < 0.9) {
+                    message = "Too short! More power next time.";
+                }
+
+                launchBall(power); 
+                updateMessage(message);
+            }
+            
             // If no movement keys are pressed, update message to ready state
-            if (!isShooting && !keysPressed.w && !keysPressed.a && !keysPressed.d && !keysPressed.s) {
-                updateMessage("Ready to shoot! Press W, A, S, or D to move, E to shoot.");
+            if (!isShooting && !isCharging && !keysPressed.w && !keysPressed.a && !keysPressed.d && !keysPressed.s) {
+                updateMessage("Ready to shoot! Hold and Release E!");
             }
         }
 
@@ -445,36 +536,28 @@
 
             if (isShooting) return;
 
-            // Lateral Movement (X-axis) - Move Right
+            // Apply movement, clamped by fence bounds (FENCE_X = 15)
             if (keysPressed.d) {
                 player.position.x += PLAYER_SPEED; 
-                // Limit movement to avoid going too far right
-                player.position.x = Math.min(player.position.x, 9); 
+                player.position.x = Math.min(player.position.x, FENCE_X - 1); 
             }
-            
-            // Lateral Movement (X-axis) - Move Left
             if (keysPressed.a) {
                 player.position.x -= PLAYER_SPEED; 
-                // Limit movement to avoid going too far left
-                player.position.x = Math.max(player.position.x, -9); 
+                player.position.x = Math.max(player.position.x, -(FENCE_X - 1)); 
             }
 
-            // Forward Movement (Z-axis) - Move Forward
+            // Apply movement, clamped by court bounds (1 to 15)
             if (keysPressed.w) {
                 player.position.z -= PLAYER_SPEED;
-                // Cap movement near the hoop
                 player.position.z = Math.max(player.position.z, 1); 
             }
-            
-            // Backward Movement (Z-axis) - Move Backward
             if (keysPressed.s) {
                 player.position.z += PLAYER_SPEED;
-                // Cap movement at the back of the court
                 player.position.z = Math.min(player.position.z, 15); 
             }
 
             // Dribble Logic (only if a movement key is pressed)
-            if (keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s) {
+            if (keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s || isCharging) {
                 // Dribble animation: use sine wave for bouncing
                 const bounceY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE)) * DRIBBLE_HEIGHT;
                 
@@ -493,9 +576,8 @@
                 );
             }
 
-            // Keep camera behind the player (Camera follows the player's Z-position)
+            // Camera Tracking (follows player's X and Z position)
             camera.position.z = player.position.z + 3;
-            // NEW: Camera follows the player's X-position (left/right)
             camera.position.x = player.position.x;
         }
 
@@ -517,7 +599,6 @@
         function updateScore(points) {
             score += points;
             document.getElementById('score').textContent = `Score: ${score}`;
-            // Updated message to reflect 2 points
             updateMessage(`SWISH! +${points} points!`);
         }
 
@@ -532,7 +613,24 @@
             // 2. Update Position
             ball.position.add(ballVelocity.clone().multiplyScalar(TIME_STEP));
 
-            // 3. Collision and Scoring Check 
+            // 3. Fence Collision Check (Ball against FENCE_X = 15, FENCE_Z = 20)
+            
+            // X-axis collision (Left/Right Side Fences)
+            if (Math.abs(ball.position.x) > FENCE_X - BALL_RADIUS) {
+                ball.position.x = Math.sign(ball.position.x) * (FENCE_X - BALL_RADIUS);
+                ballVelocity.x *= -0.7; // Bounce off (70% retention)
+                updateMessage("Hit the side fence!");
+            }
+
+            // Z-axis collision (Back Fence only, front is open)
+            if (ball.position.z < -FENCE_Z + BALL_RADIUS) {
+                ball.position.z = -FENCE_Z + BALL_RADIUS;
+                ballVelocity.z *= -0.7; // Bounce off
+                updateMessage("Hit the back fence!");
+            }
+
+
+            // 4. Scoring Check and Hoop/Backboard Collision
             const rimRadius = 0.228;
             const HOOP_TOLERANCE = 0.5;
 
@@ -546,11 +644,10 @@
                 if (distanceXZ < rimRadius && ball.position.z > RIM_Z_POS && ball.position.z + ballVelocity.z * TIME_STEP < RIM_Z_POS) {
                     if (ball.position.y > RIM_Y_POS - 0.1 && ball.position.y < RIM_Y_POS + 0.1 && ballVelocity.y < 0) {
                         
-                        // Check if the shot was a 3-pointer
-                        // Three-point line is 6.75 units away from RIM_Z_POS (-8)
+                        // Check for 3-pointer
                         const threePtDistance = 6.75;
                         const shotDistance = Math.sqrt(
-                            Math.pow(ball.position.x, 2) + Math.pow(ball.position.z - RIM_Z_POS, 2)
+                            Math.pow(player.position.x, 2) + Math.pow(player.position.z - RIM_Z_POS, 2)
                         );
                         
                         let points = 2;
@@ -565,7 +662,7 @@
                     }
                 }
 
-                // Backboard Collision (If the shot is too hard/flat)
+                // Backboard Collision 
                 const BOARD_X = 0.9;
                 const BOARD_Y_MAX = RIM_Y_POS + 1.05;
                 const BOARD_Z = RIM_Z_POS - 0.025;
@@ -582,7 +679,7 @@
             }
 
 
-            // 4. Ground/Out-of-Bounds Check
+            // 5. Ground Check
             if (ball.position.y < BALL_RADIUS) {
                 ball.position.y = BALL_RADIUS;
                 ballVelocity.y *= -0.5; 
@@ -595,12 +692,6 @@
                     setTimeout(resetBall, 3000); 
                     updateMessage("Ball stopped. Ready to shoot again.");
                 }
-
-            } else if (ball.position.z < -20 || ball.position.z > 20 || ball.position.x < -10 || ball.position.x > 10) {
-                // Out of bounds or too far (The shooting range limits are kept tight)
-                isShooting = false;
-                setTimeout(resetBall, 2000);
-                updateMessage("Out of bounds! Resetting.");
             }
         }
 
@@ -611,6 +702,24 @@
 
             // 1. Handle player movement and ball dribbling
             updateMovementAndDribble();
+
+            // 1.5. Update Shot Meter UI (NEW)
+            if (isCharging) {
+                const chargeDuration = (performance.now() - chargeStartTime) / 1000;
+                let powerPercentage = Math.min(100, (chargeDuration / MAX_CHARGE_TIME) * 100);
+                
+                // Keep the bar cycling visually if it's overcharged (power > 1.0)
+                if (chargeDuration > MAX_CHARGE_TIME) {
+                     // Pulse effect on display width (purely visual)
+                     const pulseFactor = 1.0 + Math.abs(Math.sin(gameClock * 15)) * 0.1; 
+                     document.getElementById('shot-bar').style.width = `${100 * pulseFactor}%`;
+                     document.getElementById('shot-meter-container').style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.9)';
+                } else {
+                    document.getElementById('shot-bar').style.width = `${powerPercentage}%`;
+                    // Reset shadow back to green
+                    document.getElementById('shot-meter-container').style.boxShadow = '0 0 10px rgba(0, 255, 0, 0.5)';
+                }
+            }
 
             // 2. Update shooting physics
             updateBall();
