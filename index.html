@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Streetball Shooter - Improved</title>
+    <title>3D Streetball Shooter - Detailed Player</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
@@ -157,8 +157,8 @@
         const BALL_RADIUS = 0.24;
         const RIM_Y_POS = 3.05; 
         const RIM_Z_POS = -8; 
-        const RIM_THICKNESS = 0.02; // NEW
-        const BOUNCE_DAMPING = 0.6; // NEW - Velocity multiplier after a rim hit
+        const RIM_THICKNESS = 0.02; 
+        const BOUNCE_DAMPING = 0.6; 
 
         // Court Boundaries for fence
         const FENCE_X = 15;
@@ -166,7 +166,8 @@
         const FENCE_HEIGHT = 5;
 
         // Player model settings
-        const BODY_COLOR = 0x00aaff; // Jersey color
+        const BODY_COLOR = 0x00aaff; // Jersey color (Blue)
+        const SHORTS_COLOR = 0x0088cc; // Slightly darker blue
         const SKIN_COLOR = 0xffdbac; // Skin tone
         
         // Camera smooth follow factor
@@ -337,7 +338,7 @@
 
             // 3. Rim
             const rimRadius = 0.228; 
-            const rimGeometry = new THREE.TorusGeometry(rimRadius, RIM_THICKNESS / 2, 16, 50); // Using RIM_THICKNESS here
+            const rimGeometry = new THREE.TorusGeometry(rimRadius, RIM_THICKNESS / 2, 16, 50); 
             const rimMaterial = new THREE.MeshLambertMaterial({ color: 0xcc0000 });
             const rim = new THREE.Mesh(rimGeometry, rimMaterial);
             rim.rotation.x = Math.PI / 2;
@@ -364,11 +365,12 @@
                 color: 0xff8c00, specular: 0x222222, shininess: 30
             });
             ball = new THREE.Mesh(ballGeometry, ballMaterial);
+            ball.castShadow = true;
             scene.add(ball);
         }
 
         /**
-         * Creates a more detailed, segmented player model.
+         * Creates a detailed, articulated player model with hands and shoes.
          */
         function createPlayer() {
             const playerGroup = new THREE.Group();
@@ -383,53 +385,106 @@
             
             const bodyMaterial = new THREE.MeshLambertMaterial({ color: BODY_COLOR }); 
             const skinMaterial = new THREE.MeshLambertMaterial({ color: SKIN_COLOR }); 
+            const shortsMaterial = new THREE.MeshLambertMaterial({ color: SHORTS_COLOR }); 
+            const shoeMaterial = new THREE.MeshLambertMaterial({ color: 0xcccccc }); // Light gray/white shoes
 
-            // 1. Head (Sphere)
+            // 1. Head
             const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16);
             const head = new THREE.Mesh(headGeometry, skinMaterial);
             head.position.y = legHeight + torsoHeight - headRadius * 0.2; 
+            head.castShadow = true; 
             playerGroup.add(head);
+            
+            // 1.1 Hair/Hat (Simple beanie)
+            const beanieGeometry = new THREE.ConeGeometry(headRadius * 1.1, headRadius * 1.2, 16);
+            const beanieMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+            const beanie = new THREE.Mesh(beanieGeometry, beanieMaterial);
+            beanie.position.y = head.position.y + headRadius * 0.5;
+            beanie.castShadow = true;
+            playerGroup.add(beanie);
 
-            // 2. Torso (Cylinder/Capsule)
-            const torsoGeometry = new THREE.CylinderGeometry(torsoRadius, torsoRadius * 0.8, torsoHeight, 16);
+            // 2. Torso (Slightly tapered for uniform look)
+            const torsoGeometry = new THREE.CylinderGeometry(torsoRadius, torsoRadius * 0.9, torsoHeight, 16);
             const torso = new THREE.Mesh(torsoGeometry, bodyMaterial);
             torso.position.y = legHeight + torsoHeight / 2; 
+            torso.castShadow = true; 
             playerGroup.add(torso);
 
-            // 3. Arms (Cylinders)
+            // 3. Arms 
             const armGeometry = new THREE.CylinderGeometry(limbWidth * 0.8, limbWidth * 0.8, armLength, 8);
-            
-            // Right Arm
-            const rightArm = new THREE.Mesh(armGeometry, bodyMaterial);
+            const handGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1); // Simple hand cube
+
+            // Right Arm (Dribbling/Shooting Hand)
+            const rightArmGroup = new THREE.Group();
+            const rightArm = new new THREE.Mesh(armGeometry, bodyMaterial);
             rightArm.rotation.z = Math.PI / 2;
-            rightArm.position.set(torsoRadius + armLength / 2, legHeight + torsoHeight * 0.8, 0);
-            playerGroup.add(rightArm);
+            rightArm.position.x = armLength / 2; 
+            rightArmGroup.add(rightArm);
+
+            const rightHand = new THREE.Mesh(handGeometry, skinMaterial);
+            rightHand.position.x = armLength + 0.05; // Position hand at the end of the arm + a little offset
+            rightArmGroup.add(rightHand);
+            
+            rightArmGroup.position.set(torsoRadius, legHeight + torsoHeight * 0.7, 0); // Arm joint slightly lower
+            rightArmGroup.castShadow = true;
+            playerGroup.add(rightArmGroup); 
 
             // Left Arm
+            const leftArmGroup = new THREE.Group();
             const leftArm = new THREE.Mesh(armGeometry, bodyMaterial);
             leftArm.rotation.z = -Math.PI / 2;
-            leftArm.position.set(-(torsoRadius + armLength / 2), legHeight + torsoHeight * 0.8, 0);
-            playerGroup.add(leftArm);
+            leftArm.position.x = -armLength / 2;
+            leftArmGroup.add(leftArm);
 
-            // 4. Legs (Cylinders)
-            const legGeometry = new THREE.CylinderGeometry(limbWidth, limbWidth, legHeight, 8);
-            const shortsMaterial = new THREE.MeshLambertMaterial({ color: BODY_COLOR * 0.8 }); // Darker uniform bottom
+            const leftHand = new THREE.Mesh(handGeometry, skinMaterial);
+            leftHand.position.x = -armLength - 0.05;
+            leftArmGroup.add(leftHand);
+
+            leftArmGroup.position.set(-torsoRadius, legHeight + torsoHeight * 0.7, 0);
+            leftArmGroup.castShadow = true;
+            playerGroup.add(leftArmGroup);
+
+            // 4. Legs (Use a wider, shorter cylinder for shorts)
+            const shortsGeometry = new THREE.CylinderGeometry(torsoRadius * 0.7, torsoRadius * 0.7, legHeight * 0.5, 12);
+            const legGeometry = new THREE.CylinderGeometry(limbWidth, limbWidth, legHeight * 0.5, 8); // Lower leg
 
             // Right Leg
-            const rightLeg = new THREE.Mesh(legGeometry, shortsMaterial);
-            rightLeg.position.set(torsoRadius * 0.4, legHeight / 2, 0);
-            playerGroup.add(rightLeg);
+            const rightShorts = new THREE.Mesh(shortsGeometry, shortsMaterial);
+            rightShorts.position.set(torsoRadius * 0.4, legHeight * 0.75, 0);
+            playerGroup.add(rightShorts);
+            
+            const rightLowerLeg = new THREE.Mesh(legGeometry, skinMaterial);
+            rightLowerLeg.position.set(torsoRadius * 0.4, legHeight * 0.25, 0);
+            playerGroup.add(rightLowerLeg);
 
             // Left Leg
-            const leftLeg = new THREE.Mesh(legGeometry, shortsMaterial);
-            leftLeg.position.set(-torsoRadius * 0.4, legHeight / 2, 0);
-            playerGroup.add(leftLeg);
+            const leftShorts = new THREE.Mesh(shortsGeometry, shortsMaterial);
+            leftShorts.position.set(-torsoRadius * 0.4, legHeight * 0.75, 0);
+            playerGroup.add(leftShorts);
+            
+            const leftLowerLeg = new THREE.Mesh(legGeometry, skinMaterial);
+            leftLowerLeg.position.set(-torsoRadius * 0.4, legHeight * 0.25, 0);
+            playerGroup.add(leftLowerLeg);
+
+            // --- NEW: SHOES ---
+            const shoeGeometry = new THREE.BoxGeometry(limbWidth * 2, 0.1, limbWidth * 3);
+            
+            const rightShoe = new THREE.Mesh(shoeGeometry, shoeMaterial);
+            rightShoe.position.set(torsoRadius * 0.4, 0.05, 0.1); // Slightly raised and forward
+            rightShoe.castShadow = true;
+            playerGroup.add(rightShoe);
+            
+            const leftShoe = new THREE.Mesh(shoeGeometry, shoeMaterial);
+            leftShoe.position.set(-torsoRadius * 0.4, 0.05, 0.1);
+            leftShoe.castShadow = true;
+            playerGroup.add(leftShoe);
+            // -----------------
 
             // Set player group on the court level
             playerGroup.position.set(0, -BALL_RADIUS, 6);
-            // Default player rotation to face the hoop (-Z)
-            playerGroup.rotation.y = Math.PI;
             player = playerGroup;
+            player.castShadow = true; 
+            player.rotation.y = Math.PI; // Face the hoop initially
             scene.add(player);
         }
 
@@ -483,37 +538,23 @@
             
             // 2. Determine Ideal Launch Velocity based on a target apex height
             
-            // Higher apex for longer shots, scaled to be slightly lower than player launch height + distance factor
             const APEX_HEIGHT = 4.0 + Math.min(3.0, distXZ * 0.6); 
             const targetY = target.y;
             const startY = shotStart.y;
             const gravityMag = -GRAVITY.y;
 
-            // Vertical velocity (Vy) needed to reach APEX_HEIGHT
             let vy_ideal = Math.sqrt(2 * gravityMag * (APEX_HEIGHT - startY));
-
-            // Time to reach apex (t_apex = vy/|g|)
             let t_apex = vy_ideal / gravityMag;
-
-            // Time from apex to target height (t_fall = sqrt(2 * (ApexY - TargetY) / |g|))
             let t_fall = Math.sqrt(2 * (APEX_HEIGHT - targetY) / gravityMag);
-
-            // Total time of flight (t_flight = t_apex + t_fall)
             let t_flight = t_apex + t_fall;
-
-            // Horizontal velocity required (Vxz = distXZ / t_flight)
             let vxz_ideal = distXZ / t_flight;
             
             // 3. Apply Power and Error
             const idealPower = 1.0;
             const powerError = power - idealPower;
             const errorFactor = Math.abs(powerError);
-
-            // Velocity Scaling: Scale the trajectory. Overcharge is faster/flatter; undercharge is slower/higher.
-            // Scale velocity less aggressively than 1:1, otherwise shots fly too far/short.
             const vScale = 1.0 + powerError * 0.5; 
 
-            // Calculate ideal velocity components
             let vx_ideal = delta.x / distXZ * vxz_ideal;
             let vz_ideal = delta.z / distXZ * vxz_ideal;
             
@@ -522,20 +563,14 @@
             ballVelocity.y = vy_ideal * vScale;
             
             // Positional Error (Drift)
-            // Difficulty is scaled by distance: longer shots amplify error.
             const difficultyScale = Math.min(3.0, distXZ / 4); 
 
-            // Introduce lateral error (left/right) based on power timing
-            // Random direction * Error Factor * Base Sensitivity * Difficulty Scale
             let lateralError = (Math.random() - 0.5) * errorFactor * 1.5 * difficultyScale;
             ballVelocity.x += lateralError;
 
-            // Introduce vertical error (affects distance/back/front)
-            // Only apply a small random vertical error based on the timing error.
             let verticalError = (Math.random() - 0.5) * errorFactor * 0.2 * difficultyScale;
             ballVelocity.y += verticalError; 
 
-            // Ensure the Z component is negative (shooting towards the hoop at Z=-8)
             ballVelocity.z = -Math.abs(ballVelocity.z); 
         }
 
@@ -553,6 +588,7 @@
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(width, height);
             renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
             container.appendChild(renderer.domElement);
             
             // Camera
@@ -566,6 +602,14 @@
             const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
             directionalLight.position.set(5, 15, 10);
             directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -20;
+            directionalLight.shadow.camera.right = 20;
+            directionalLight.shadow.camera.top = 20;
+            directionalLight.shadow.camera.bottom = -20;
             scene.add(directionalLight);
 
             // Game Objects
@@ -807,36 +851,30 @@
                     updateMessage("Clank! Off the glass.");
                 }
 
-                // 4.1 RIM COLLISION CHECK (Torus Approximation) (NEW)
+                // 4.1 RIM COLLISION CHECK (Torus Approximation)
                 const rimCenter = new THREE.Vector3(0, RIM_Y_POS, RIM_Z_POS);
                 const rimToBall = new THREE.Vector3().subVectors(ball.position, rimCenter);
 
-                // Check if the ball is near the rim's height plane
                 if (Math.abs(rimToBall.y) < BALL_RADIUS + RIM_THICKNESS / 2) {
                     const distanceXZ = Math.sqrt(rimToBall.x * rimToBall.x + rimToBall.z * rimToBall.z);
                     
-                    // Check if ball is close enough to the rim radius projection
                     if (distanceXZ < rimRadius + BALL_RADIUS) {
                         
-                        // Calculate the vector to the closest point on the rim circle (in XZ)
                         const rimPointXZ = rimToBall.clone();
                         rimPointXZ.y = 0; 
                         rimPointXZ.normalize().multiplyScalar(rimRadius);
 
-                        // Closest point on the actual rim (in 3D space)
                         const closestRimPoint = new THREE.Vector3(rimPointXZ.x, ball.position.y, rimPointXZ.z);
                         closestRimPoint.add(rimCenter); 
-                        closestRimPoint.y = RIM_Y_POS; // Clamp Y to rim height for simpler normal calculation
+                        closestRimPoint.y = RIM_Y_POS; 
 
                         const normal = new THREE.Vector3().subVectors(ball.position, closestRimPoint).normalize();
                         const distance = ball.position.distanceTo(closestRimPoint);
 
                         if (distance < BALL_RADIUS + RIM_THICKNESS) {
-                            // Resolve intersection (push ball out)
                             const penetration = BALL_RADIUS + RIM_THICKNESS - distance;
                             ball.position.add(normal.clone().multiplyScalar(penetration));
 
-                            // Reflect velocity (Bounce: v_new = v_old - 2 * (v_old . n) * n)
                             const dot = ballVelocity.dot(normal);
                             const reflection = normal.clone().multiplyScalar(2 * dot);
                             ballVelocity.sub(reflection).multiplyScalar(BOUNCE_DAMPING); 
@@ -871,10 +909,9 @@
                 ball.position.y = BALL_RADIUS;
 
                 // Dynamic Dampening
-                const BOUNCE_DAMPENING_Y = 0.5; // Base Coefficient of Restitution
-                const FRICTION = 0.85; // Base friction
+                const BOUNCE_DAMPENING_Y = 0.5; 
+                const FRICTION = 0.85; 
 
-                // Apply slightly more dampening on hard, high-velocity hits
                 let actualDampening = BOUNCE_DAMPENING_Y; 
                 if (Math.abs(ballVelocity.y) > 10) { 
                     actualDampening = 0.4;
@@ -897,7 +934,7 @@
 
         function animate() {
             requestAnimationFrame(animate);
-
+            // 
             updateMovementAndDribble();
 
             // Update Shot Meter UI
@@ -906,7 +943,6 @@
                 let powerPercentage = Math.min(100, (chargeDuration / MAX_CHARGE_TIME) * 100);
                 
                 if (chargeDuration > MAX_CHARGE_TIME) {
-                    // Visual pulse for overcharge
                     const pulseFactor = 1.0 + Math.abs(Math.sin(gameClock * 15)) * 0.1; 
                     document.getElementById('shot-bar').style.width = `${100 * pulseFactor}%`;
                     document.getElementById('shot-meter-container').style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.9)';
