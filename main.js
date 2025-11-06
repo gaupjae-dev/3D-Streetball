@@ -1,75 +1,103 @@
-// main.js (Revised)
+// main.js (Complete Working Code)
 
-// 1. SCENE SETUP (THREE.js)
+// === 1. THREE.js SETUP ===
+
 const scene = new THREE.Scene();
-// ... (Camera, Renderer, and Lighting setup remains the same)
+scene.background = new THREE.Color(0x87ceeb); // Light blue sky color
 
-// *** NEW: PHYSICS SETUP (CANNON-es) ***
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 5, 10); // Move camera back and up
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// === LIGHTING ===
+const ambientLight = new THREE.AmbientLight(0x404040, 5); // Soft white light
+scene.add(ambientLight);
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+directionalLight.position.set(5, 10, 7.5);
+scene.add(directionalLight);
+
+// === 2. CANNON-es PHYSICS SETUP ===
+
 const world = new CANNON.World({
     gravity: new CANNON.Vec3(0, -9.82, 0) // Standard Earth gravity (m/s^2)
 });
 
-// Store references for the ball and its physics body
 let basketballMesh;
-let basketballBody; 
+let basketballBody;
 
 // --- MESH CREATION FUNCTIONS ---
 
 function createCourt() {
-    // ... (Three.js court mesh creation remains the same)
+    // THREE.js MESH
+    const geometry = new THREE.PlaneGeometry(30, 50);
+    const material = new THREE.MeshPhongMaterial({ color: 0xcd853f, side: THREE.DoubleSide });
+    const court = new THREE.Mesh(geometry, material);
     
-    // NEW: Create a static physics body for the court (Plane)
+    court.rotation.x = Math.PI / 2;
+    court.position.y = 0;
+    scene.add(court);
+    
+    // CANNON.js BODY
     const courtShape = new CANNON.Plane();
-    // Mass 0 makes it static (unmovable)
     const courtBody = new CANNON.Body({ mass: 0, shape: courtShape });
-    
-    // Rotate 90 degrees around the X-axis to make it horizontal (Cannon uses Quaternions)
     courtBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-    
     world.addBody(courtBody);
 }
 
 function createBall() {
-    // ... (Three.js ball mesh creation remains the same)
-    
-    // Store reference to the mesh
+    // THREE.js MESH
+    const radius = 0.5;
+    const geometry = new THREE.SphereGeometry(radius, 32, 32);
+    const material = new THREE.MeshPhongMaterial({ color: 0xff8c00 });
+    const ball = new THREE.Mesh(geometry, material);
+    ball.position.set(0, 5, 0);
+    scene.add(ball);
     basketballMesh = ball;
 
-    // NEW: Create a physics body for the ball (Sphere)
-    const radius = 0.5; // Must match the Three.js SphereGeometry radius
+    // CANNON.js BODY
     const ballShape = new CANNON.Sphere(radius);
-    
-    // Mass > 0 makes it dynamic (affected by forces/gravity)
     basketballBody = new CANNON.Body({ 
         mass: 5, 
         shape: ballShape, 
-        position: new CANNON.Vec3(0, 5, 0) // Start position
+        position: new CANNON.Vec3(0, 5, 0) 
     });
-    
     world.addBody(basketballBody);
 }
 
-// ... (Call createCourt() and createBall())
+// === 3. INITIALIZATION CALLS ===
+createCourt();
+createBall();
 
-// --- ANIMATION/RENDER LOOP (Updated) ---
-const timeStep = 1 / 60; // Fixed timestep for physics simulation
+
+// --- 4. ANIMATION/RENDER LOOP ---
+const timeStep = 1 / 60;
 
 function animate() {
     requestAnimationFrame(animate); 
     
-    // 1. ADVANCE PHYSICS SIMULATION
+    // ADVANCE PHYSICS SIMULATION
     world.step(timeStep);
 
-    // 2. SYNCHRONIZE THREE.js MESH WITH CANNON.js BODY
+    // SYNCHRONIZE MESH WITH BODY
     if (basketballMesh && basketballBody) {
-        // Copy the position from the physics body to the graphical mesh
         basketballMesh.position.copy(basketballBody.position);
-        
-        // Copy the rotation (quaternion) from the body to the mesh
         basketballMesh.quaternion.copy(basketballBody.quaternion);
     }
     
     renderer.render(scene, camera);
 }
 
-// ... (Resize listener and animate() call remain the same)
+// === 5. START & RESIZE ===
+window.addEventListener('resize', () => {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+});
+
+// START THE GAME!
+animate();
