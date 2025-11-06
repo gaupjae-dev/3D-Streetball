@@ -108,7 +108,6 @@
         const PLAYER_SPEED = 0.15; 
         const DRIBBLE_HEIGHT = 0.6; 
         const DRIBBLE_RATE = 10; 
-        // UPDATED: Added 's' for backward movement
         let keysPressed = { w: false, a: false, s: false, d: false }; 
         let gameClock = 0;
 
@@ -147,21 +146,66 @@
 
             // 2. Court Lines
             const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const lineY = -BALL_RADIUS + 0.005;
 
-            const ftLineGeo = new THREE.BoxGeometry(6, 0.01, 0.1);
-            const ftLine = new THREE.Mesh(ftLineGeo, lineMaterial);
-            ftLine.position.set(0, -BALL_RADIUS + 0.005, RIM_Z_POS + 5);
-            scene.add(ftLine);
+            // --- Three-Point Line (Arc and Wings) ---
+            const threePtRadius = 6.75;
+            const threePtCenterZ = RIM_Z_POS; // -8
+            const wingX = 6.75; // X position for the wings
+            const wingZMax = 15; // Extends back to Z=15 
 
-            const tpLineGeo = new THREE.BoxGeometry(16, 0.01, 0.1);
-            const tpLine = new THREE.Mesh(tpLineGeo, lineMaterial);
-            tpLine.position.set(0, -BALL_RADIUS + 0.005, RIM_Z_POS + 10);
-            scene.add(tpLine);
+            // Arc segment
+            // Using a large arc starting and ending well below the hoop
+            const arcShape = new THREE.Shape();
+            // Start angle (approx 150 degrees) and End angle (approx 30 degrees)
+            arcShape.absarc(0, threePtCenterZ, threePtRadius, Math.PI * 0.35, Math.PI * 0.65, true); 
 
-            const midLineGeo = new THREE.BoxGeometry(16, 0.01, 0.1);
-            const midLine = new THREE.Mesh(midLineGeo, lineMaterial);
-            midLine.position.set(0, -BALL_RADIUS + 0.005, 0);
-            scene.add(midLine);
+            const arcPoints = arcShape.getPoints(50); // 50 segments for smooth curve
+            const arcGeometry = new THREE.BufferGeometry().setFromPoints(arcPoints);
+            const arcMesh = new THREE.Line(arcGeometry, lineMaterial);
+            arcMesh.position.y = lineY;
+            arcMesh.rotation.x = Math.PI / 2;
+            scene.add(arcMesh);
+
+            // Straight lines (3-point wings)
+            const wingLineLength = wingZMax - (RIM_Z_POS + threePtRadius * Math.cos(Math.PI * 0.35)); // Calculate the length needed
+            const wingLineGeo = new THREE.BoxGeometry(0.1, 0.01, 12); // Approximate size
+
+            const leftWing = new THREE.Mesh(wingLineGeo, lineMaterial);
+            leftWing.position.set(-wingX, lineY, 3); // Positioned manually for visual fit
+            scene.add(leftWing);
+
+            const rightWing = new THREE.Mesh(wingLineGeo, lineMaterial);
+            rightWing.position.set(wingX, lineY, 3); // Positioned manually for visual fit
+            scene.add(rightWing);
+
+
+            // --- Out-of-Bounds Lines (Perimeter) ---
+            // Court size: X=30, Z=40. Center at (0, 0, 0).
+            const courtX = 15; // X boundary
+            const courtZ = 20; // Z boundary
+
+            // Left/Right Sidelines (Z=40 long)
+            const sideLineGeo = new THREE.BoxGeometry(0.1, 0.01, 40);
+
+            const leftSide = new THREE.Mesh(sideLineGeo, lineMaterial);
+            leftSide.position.set(-courtX, lineY, 0);
+            scene.add(leftSide);
+
+            const rightSide = new THREE.Mesh(sideLineGeo, lineMaterial);
+            rightSide.position.set(courtX, lineY, 0);
+            scene.add(rightSide);
+
+            // Top/Bottom Baselines (X=30 wide)
+            const baseLineGeo = new THREE.BoxGeometry(30.1, 0.01, 0.1); // Slightly wider to meet sidelines
+
+            const frontBase = new THREE.Mesh(baseLineGeo, lineMaterial); // Far from hoop (Z=20)
+            frontBase.position.set(0, lineY, courtZ);
+            scene.add(frontBase);
+
+            const backBase = new THREE.Mesh(baseLineGeo, lineMaterial); // Behind the hoop (Z=-20)
+            backBase.position.set(0, lineY, -courtZ);
+            scene.add(backBase);
         }
 
         function createHoop() {
@@ -357,7 +401,7 @@
                 keysPressed.a = true;
                 updateMessage("Dribbling!");
             }
-            // S - Backward movement (NEW)
+            // S - Backward movement
             if (key === 's') {
                 keysPressed.s = true;
                 updateMessage("Dribbling!");
@@ -382,7 +426,7 @@
             if (key === 'a') {
                 keysPressed.a = false;
             }
-            // S - Backward movement stop (NEW)
+            // S - Backward movement stop
             if (key === 's') {
                 keysPressed.s = false;
             }
@@ -422,7 +466,7 @@
                 player.position.z = Math.max(player.position.z, 1); 
             }
             
-            // Backward Movement (Z-axis) - Move Backward (NEW)
+            // Backward Movement (Z-axis) - Move Backward
             if (keysPressed.s) {
                 player.position.z += PLAYER_SPEED;
                 // Cap movement at the back of the court
@@ -451,6 +495,8 @@
 
             // Keep camera behind the player (Camera follows the player's Z-position)
             camera.position.z = player.position.z + 3;
+            // NEW: Camera follows the player's X-position (left/right)
+            camera.position.x = player.position.x;
         }
 
 
@@ -499,8 +545,20 @@
                 // Scoring check (passed through rim plane while falling)
                 if (distanceXZ < rimRadius && ball.position.z > RIM_Z_POS && ball.position.z + ballVelocity.z * TIME_STEP < RIM_Z_POS) {
                     if (ball.position.y > RIM_Y_POS - 0.1 && ball.position.y < RIM_Y_POS + 0.1 && ballVelocity.y < 0) {
-                        // Call AddScore(2) equivalent
-                        updateScore(2); 
+                        
+                        // Check if the shot was a 3-pointer
+                        // Three-point line is 6.75 units away from RIM_Z_POS (-8)
+                        const threePtDistance = 6.75;
+                        const shotDistance = Math.sqrt(
+                            Math.pow(ball.position.x, 2) + Math.pow(ball.position.z - RIM_Z_POS, 2)
+                        );
+                        
+                        let points = 2;
+                        if (shotDistance > threePtDistance) {
+                            points = 3;
+                        }
+
+                        updateScore(points); 
                         isShooting = false;
                         setTimeout(resetBall, 1500);
                         return;
@@ -539,7 +597,7 @@
                 }
 
             } else if (ball.position.z < -20 || ball.position.z > 20 || ball.position.x < -10 || ball.position.x > 10) {
-                // Out of bounds or too far
+                // Out of bounds or too far (The shooting range limits are kept tight)
                 isShooting = false;
                 setTimeout(resetBall, 2000);
                 updateMessage("Out of bounds! Resetting.");
