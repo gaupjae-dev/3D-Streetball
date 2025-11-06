@@ -1,14 +1,22 @@
-// main.js (Robust Version)
+// main.js (Robust Version with Imports)
+
+// ----------------------------------------------------
+// ADD THESE TWO IMPORT LINES AT THE VERY TOP OF main.js
+// ----------------------------------------------------
+import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
+import * as CANNON from 'https://unpkg.com/cannon-es@0.19.0/dist/cannon-es.js';
+// ----------------------------------------------------
+
 
 // 1. GLOBAL VARIABLES
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer();
 
-const world = new CANNON.World({
+const world = new CANNON.World({ // Line 8: CANNON is now defined by the import!
     gravity: new CANNON.Vec3(0, -9.82, 0)
 });
-
+// ... rest of the code follows ...
 let basketballMesh;
 let basketballBody;
 
