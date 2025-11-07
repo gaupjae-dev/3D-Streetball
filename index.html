@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Streetball Shooter - Layups and AI Defender</title>
+    <title>3D Streetball Shooter - NBA Court and Integrated Shot Logic</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
@@ -123,7 +123,7 @@
             <div id="message">Streetball Ready!</div>
         </div>
         <div id="instructions">
-            Use W, A, S, D to move. HOLD E for Jumpshot. **PRESS SPACE** to **JUMP/LAYUP** (when close)!
+            Use W, A, S, D to move. **HOLD E** to **JUMPSHOT (outside paint)** or **LAYUP (inside paint)**.
         </div>
         <div id="shot-meter-container">
             <div id="shot-bar"></div>
@@ -132,67 +132,57 @@
     </div>
 
     <script type="module">
-        // --- Global Variables ---
+        // --- Global Variables and Constants ---
         let scene, camera, renderer;
         let ball, hoop, court, player, opponent;
         let score = 0;
         let isShooting = false;
         let ballVelocity = new THREE.Vector3();
-        const GRAVITY = new THREE.Vector3(0, -9.8, 0); // Approx gravity (m/s^2)
-        const TIME_STEP = 1/60; // Fixed physics step
+        const GRAVITY = new THREE.Vector3(0, -9.8, 0); 
+        const TIME_STEP = 1/60; 
 
-        // State for Shot Meter and Perfect Shot Animation
+        // Shot Meter State
         let isCharging = false;
         let chargeStartTime = 0;
         const MAX_CHARGE_TIME = 1.5; 
         let isGuaranteedShot = false; 
         let shotProgress = 0;
         let shotStartPos = new THREE.Vector3();
-        const shotTargetPos = new THREE.Vector3(0, 3.05, -8); // Center of the rim
+        const shotTargetPos = new THREE.Vector3(0, 3.05, -8); 
         let shotDuration = 0; 
         
-        // Layup/Jump Variables
+        // Player State
         const JUMP_VELOCITY = 6; 
+        const JUMPSHOT_HEIGHT = 0.5; // Height player jumps for a jumpshot
         let isJumping = false;
-        const GROUND_Y = -0.24; // -BALL_RADIUS
-        const LAYUP_DISTANCE = 5; // Max Z distance for a layup
+        const GROUND_Y = -0.24; 
+        const LAYUP_AREA_Z = 5.8; // Z-limit for the key (Approx 4.6m from hoop * 0.5 Scale) 
+        const LAYUP_AREA_X = 2.5; // X-limit for the key (Approx 4.9m wide * 0.5 Scale)
         
-        // Variables for movement and dribbling
+        // Movement and Dribbling
         const PLAYER_SPEED = 0.15; 
         const DRIBBLE_HEIGHT = 0.6; 
         const DRIBBLE_RATE = 10; 
-        let keysPressed = { w: false, a: false, s: false, d: false, e: false, space: false }; 
+        let keysPressed = { w: false, a: false, s: false, d: false, e: false }; 
         let gameClock = 0;
 
         // Hoop and Ball constants
         const BALL_RADIUS = 0.24;
         const RIM_Y_POS = 3.05; 
         const RIM_Z_POS = -8; 
-        const RIM_THICKNESS = 0.02; 
         const BOUNCE_DAMPING = 0.6; 
 
-        // Court Boundaries for fence
+        // Court Boundaries 
         const FENCE_X = 15;
         const FENCE_Z = 20;
-        const FENCE_HEIGHT = 5;
-
-        // Player model constants
-        const BODY_COLOR = 0x00aaff; 
-        const SHORTS_COLOR = 0x0088cc; 
-        const SKIN_COLOR = 0xffdbac; 
         
-        // Camera smooth follow factor
-        const CAMERA_SMOOTHNESS = 0.05;
-        
-        // AI Defender Constants
+        // AI Defender Constants (simplified)
         const AI_SPEED = 0.1;
-        const AI_MAX_DIST_X = 10; // Max horizontal movement range
-        const AI_DEFENSE_Z = -5;  // Defense zone Z coordinate
-        const AI_PLAYER_FOLLOW_DIST = 15; // Max distance AI will chase player
-        const AI_BLOCK_RADIUS = 2; // How close the AI needs to be to affect a shot (simple)
+        const AI_DEFENSE_Z = -5;  
+        const AI_PLAYER_FOLLOW_DIST = 15; 
+        const AI_BLOCK_RADIUS = 2; 
 
-
-        // --- Utility Functions (Keep the ones from previous steps) ---
+        // --- Utility Functions ---
 
         function onWindowResize() {
             const container = document.getElementById('game-container');
@@ -214,18 +204,25 @@
             updateMessage(`SWISH! +${points} points!`);
         }
 
+        // Check if player is inside the "paint" (the free throw key)
+        function isInThePaint() {
+            const pos = player.position;
+            const zDistanceFromHoop = RIM_Z_POS - pos.z;
+            return zDistanceFromHoop < LAYUP_AREA_Z && Math.abs(pos.x) < LAYUP_AREA_X;
+        }
+
         function createFences() {
             // ... (Fences code remains the same) ...
             const FENCE_THICKNESS = 0.1;
+            const FENCE_HEIGHT = 5;
+            const lineY = -BALL_RADIUS + 0.005; 
+            const wallY = lineY + FENCE_HEIGHT / 2;
             const fenceMaterial = new THREE.MeshLambertMaterial({ 
                 color: 0x4a4a4a, 
                 transparent: true, 
                 opacity: 0.8,
                 side: THREE.DoubleSide
             });
-
-            const lineY = -BALL_RADIUS + 0.005; 
-            const wallY = lineY + FENCE_HEIGHT / 2;
 
             const sideWallGeo = new THREE.BoxGeometry(FENCE_THICKNESS, FENCE_HEIGHT, 40);
             const leftFence = new THREE.Mesh(sideWallGeo, fenceMaterial);
@@ -239,10 +236,14 @@
             const backFence = new THREE.Mesh(baseWallGeo, fenceMaterial);
             backFence.position.set(0, wallY, -FENCE_Z);
             scene.add(backFence);
+            
+            // Out of bounds line at the front (closer to camera)
+            const frontFence = new THREE.Mesh(baseWallGeo, fenceMaterial); 
+            frontFence.position.set(0, wallY, FENCE_Z);
+            scene.add(frontFence);
         }
 
         function createCourt() {
-            // ... (Court and Lines code remains the same) ...
             const groundGeometry = new THREE.PlaneGeometry(30, 40);
             const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x5a5a5a });
             court = new THREE.Mesh(groundGeometry, groundMaterial);
@@ -254,10 +255,71 @@
             createFences(); 
 
             // Court Lines
+            const LINE_WIDTH = 0.1;
             const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
             const lineY = -BALL_RADIUS + 0.005;
 
-            // Three-Point Arc
+            // --- 1. NBA Perimeter Out-of-Bounds Lines ---
+            const PERIMETER_X = 14.95;
+            const PERIMETER_Z = 19.95;
+            const lineGeoX = new THREE.BoxGeometry(LINE_WIDTH, 0.01, 40); 
+            const lineGeoZ = new THREE.BoxGeometry(30, 0.01, LINE_WIDTH);
+
+            // Side lines
+            const leftSideLine = new THREE.Mesh(lineGeoX, lineMaterial);
+            leftSideLine.position.set(-PERIMETER_X, lineY, 0);
+            scene.add(leftSideLine);
+
+            const rightSideLine = new THREE.Mesh(lineGeoX, lineMaterial);
+            rightSideLine.position.set(PERIMETER_X, lineY, 0);
+            scene.add(rightSideLine);
+
+            // Base lines
+            const frontBaseLine = new THREE.Mesh(lineGeoZ, lineMaterial);
+            frontBaseLine.position.set(0, lineY, PERIMETER_Z);
+            scene.add(frontBaseLine);
+
+            const backBaseLine = new THREE.Mesh(lineGeoZ, lineMaterial);
+            backBaseLine.position.set(0, lineY, -PERIMETER_Z);
+            scene.add(backBaseLine);
+
+
+            // --- 2. Free Throw Lane / Key ---
+            const KEY_WIDTH = 4.9; // approx 16ft, 8ft each side
+            const KEY_LENGTH = LAYUP_AREA_Z + (RIM_Z_POS + 8); // depth from the baseline
+
+            // Side lines of the Key
+            const keySideGeo = new THREE.BoxGeometry(LINE_WIDTH, 0.01, KEY_LENGTH);
+            const keySideZ = RIM_Z_POS + KEY_LENGTH / 2;
+
+            const leftKeyLine = new THREE.Mesh(keySideGeo, lineMaterial);
+            leftKeyLine.position.set(-KEY_WIDTH / 2, lineY, keySideZ);
+            scene.add(leftKeyLine);
+
+            const rightKeyLine = new THREE.Mesh(keySideGeo, lineMaterial);
+            rightKeyLine.position.set(KEY_WIDTH / 2, lineY, keySideZ);
+            scene.add(rightKeyLine);
+
+            // Free Throw Line (The top of the key)
+            const freeThrowLineGeo = new THREE.BoxGeometry(KEY_WIDTH + LINE_WIDTH, 0.01, LINE_WIDTH);
+            const freeThrowLineZ = RIM_Z_POS + LAYUP_AREA_Z; 
+
+            const freeThrowLine = new THREE.Mesh(freeThrowLineGeo, lineMaterial);
+            freeThrowLine.position.set(0, lineY, freeThrowLineZ);
+            scene.add(freeThrowLine);
+
+            // Free Throw Circle
+            const FT_RADIUS = 1.8; // 6ft
+            const ftCircleShape = new THREE.Shape();
+            ftCircleShape.absarc(0, freeThrowLineZ, FT_RADIUS, 0, Math.PI * 2, true);
+            const ftCirclePoints = ftCircleShape.getPoints(50);
+            const ftCircleGeometry = new THREE.BufferGeometry().setFromPoints(ftCirclePoints);
+            const ftCircleMesh = new THREE.Line(ftCircleGeometry, lineMaterial);
+            ftCircleMesh.position.y = lineY;
+            ftCircleMesh.rotation.x = Math.PI / 2;
+            scene.add(ftCircleMesh);
+
+            // --- 3. Three-Point Arc ---
             const threePtRadius = 6.75;
             const arcShape = new THREE.Shape();
             arcShape.absarc(0, RIM_Z_POS, threePtRadius, Math.PI * 0.35, Math.PI * 0.65, true); 
@@ -268,39 +330,24 @@
             arcMesh.rotation.x = Math.PI / 2;
             scene.add(arcMesh);
 
-            // Three-Point Wings
-            const wingX = 6.75; 
-            const wingLineGeo = new THREE.BoxGeometry(0.1, 0.01, 12); 
-            const leftWing = new THREE.Mesh(wingLineGeo, lineMaterial);
-            leftWing.position.set(-wingX, lineY, 3); 
+            // Three-Point Wings (connecting arc to sidelines)
+            const wingZStart = RIM_Z_POS + Math.cos(Math.PI * 0.35) * threePtRadius;
+            const wingLineLength = PERIMETER_Z - wingZStart; 
+            const wingGeo = new THREE.BoxGeometry(LINE_WIDTH, 0.01, wingLineLength);
+            
+            const wingX = Math.sin(Math.PI * 0.35) * threePtRadius; 
+
+            const leftWing = new THREE.Mesh(wingGeo, lineMaterial);
+            leftWing.position.set(-wingX, lineY, (wingZStart + PERIMETER_Z) / 2);
             scene.add(leftWing);
-            const rightWing = new THREE.Mesh(wingLineGeo, lineMaterial);
-            rightWing.position.set(wingX, lineY, 3); 
+
+            const rightWing = new THREE.Mesh(wingGeo, lineMaterial);
+            rightWing.position.set(wingX, lineY, (wingZStart + PERIMETER_Z) / 2);
             scene.add(rightWing);
-
-            // Perimeter Lines
-            const baseLineGeo = new THREE.BoxGeometry(30.1, 0.01, 0.1); 
-            const sideLineGeo = new THREE.BoxGeometry(0.1, 0.01, 40);
-
-            const leftSide = new THREE.Mesh(sideLineGeo, lineMaterial);
-            leftSide.position.set(-FENCE_X, lineY, 0);
-            scene.add(leftSide);
-
-            const rightSide = new THREE.Mesh(sideLineGeo, lineMaterial);
-            rightSide.position.set(FENCE_X, lineY, 0);
-            scene.add(rightSide);
-
-            const frontBase = new THREE.Mesh(baseLineGeo, lineMaterial); 
-            frontBase.position.set(0, lineY, FENCE_Z);
-            scene.add(frontBase);
-
-            const backBase = new THREE.Mesh(baseLineGeo, lineMaterial); 
-            backBase.position.set(0, lineY, -FENCE_Z);
-            scene.add(backBase);
         }
 
         function createHoop() {
-            // ... (Hoop code remains the same) ...
+            // ... (Hoop creation code remains the same) ...
             hoop = new THREE.Group();
 
             // Dimensions
@@ -381,9 +428,9 @@
             const legHeight = 0.9;
             const armLength = 0.6; 
             
-            const bodyMaterial = new THREE.MeshLambertMaterial({ color: BODY_COLOR }); 
-            const skinMaterial = new THREE.MeshLambertMaterial({ color: SKIN_COLOR }); 
-            const shortsMaterial = new THREE.MeshLambertMaterial({ color: SHORTS_COLOR }); 
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x00aaff }); 
+            const skinMaterial = new THREE.MeshLambertMaterial({ color: 0xffdbac }); 
+            const shortsMaterial = new THREE.MeshLambertMaterial({ color: 0x0088cc }); 
             const shoeMaterial = new THREE.MeshLambertMaterial({ color: 0xcccccc }); 
 
             // Head
@@ -470,16 +517,17 @@
             player.userData.leftArmGroup = leftArmGroup;
             player.userData.rightHand = rightHand;
             player.userData.legGroups = [rightLegGroup, leftLegGroup];
-            player.userData.verticalVelocity = 0; // New: for jump physics
+            player.userData.verticalVelocity = 0;
+            player.userData.isLayup = false; // New: to distinguish layup from jumpshot
             
             scene.add(player);
         }
         
-        // --- NEW: Opponent Model ---
         function createOpponent() {
+            // ... (Opponent creation code remains the same) ...
             const oppGroup = new THREE.Group();
-            const oppBodyMaterial = new THREE.MeshLambertMaterial({ color: 0xff4444 }); // Red Jersey
-            const oppSkinMaterial = new THREE.MeshLambertMaterial({ color: 0x6e4a2c }); // Dark Skin
+            const oppBodyMaterial = new THREE.MeshLambertMaterial({ color: 0xff4444 }); 
+            const oppSkinMaterial = new THREE.MeshLambertMaterial({ color: 0x6e4a2c }); 
 
             const torsoHeight = 0.7;
             const torsoRadius = 0.25;
@@ -506,10 +554,10 @@
             leftLeg.position.set(-torsoRadius * 0.4, legHeight / 2, 0);
             oppGroup.add(leftLeg);
             
-            oppGroup.position.set(0, GROUND_Y, -5); // Start on defense
+            oppGroup.position.set(0, GROUND_Y, -5); 
             opponent = oppGroup;
             opponent.castShadow = true;
-            opponent.userData.verticalVelocity = 0; // For future jump blocking
+            opponent.userData.verticalVelocity = 0; 
             
             scene.add(opponent);
         }
@@ -518,23 +566,24 @@
             ballVelocity.set(0, 0, 0);
             isShooting = false;
             isGuaranteedShot = false;
+            player.userData.isLayup = false;
+            isJumping = false;
+            player.userData.verticalVelocity = 0;
+            player.position.y = GROUND_Y;
+            
             ball.userData.scored = false;
             ball.userData.inRimArea = false;
             document.getElementById('shot-meter-container').style.display = 'none';
             
-            updateMessage("Ready to shoot! Hold E for shot, SPACE for layup/jump.");
+            updateMessage("Ready to shoot! Hold E to shoot.");
             
-            updateMovementAndDribble(); // Reset ball position to hand/dribble
+            updateMovementAndDribble(); 
         }
 
-        // --- NEW: Layup Logic ---
         function launchLayup() {
+            // ... (Layup logic remains largely the same) ...
             if (isShooting) return;
 
-            // 1. Determine direction and initial speed
-            const distZ = player.position.z - RIM_Z_POS;
-            const distSq = player.position.clone().setY(0).distanceToSq(shotTargetPos.clone().setY(0));
-            
             // Check for AI influence (simple block)
             const aiDistSq = opponent.position.clone().setY(0).distanceToSq(player.position.clone().setY(0));
             const isBlocked = aiDistSq < AI_BLOCK_RADIUS * AI_BLOCK_RADIUS && opponent.position.z < player.position.z;
@@ -563,14 +612,14 @@
             const launchPosition = new THREE.Vector3();
             player.userData.rightHand.getWorldPosition(launchPosition);
             ball.position.copy(launchPosition); 
-            ballVelocity.set(vx, vy, -vz); // Z is negative (towards the hoop)
+            ballVelocity.set(vx, vy, -vz); 
             
             isShooting = true;
-            isJumping = false; // Reset jump state
-            player.userData.verticalVelocity = 0; // Stop player jump
+            isJumping = false; 
+            player.userData.verticalVelocity = 0; 
         }
 
-        function launchBall(power) {
+        function launchJumpshot(power) {
             if (isShooting) return;
 
             // 1. Set the initial launch position (player's hand height)
@@ -593,7 +642,7 @@
             }
 
             // --- Standard Physics Launch for REALISTIC MISSES ---
-            const VELOCITY_SCALE = Math.min(1.5, power); 
+            const VELOCITY_SCALE = Math.min(1.8, power); 
             const distZ = Math.max(1, player.position.z - RIM_Z_POS); 
             
             const base_vz = distZ * 0.85; 
@@ -692,6 +741,7 @@
             }
 
             // --- Camera Tracking (LERP) ---
+            const CAMERA_SMOOTHNESS = 0.05;
             camera.position.z += (player.position.z + 3 - camera.position.z) * CAMERA_SMOOTHNESS;
             camera.position.x += (player.position.x - camera.position.x) * CAMERA_SMOOTHNESS;
         }
@@ -706,30 +756,35 @@
             const lArm = player.userData.leftArmGroup; 
             
             // Player vertical position for arm calculation
-            const playerHeightRatio = (player.position.y - GROUND_Y) / 0.3; // Max jump height approx 0.3m
+            const playerJumpRatio = (player.position.y - GROUND_Y) / (player.userData.isLayup ? JUMP_VELOCITY * TIME_STEP * 10 : JUMPSHOT_HEIGHT);
 
             if (isCharging) {
                 // Shot Charging Pose
                 rArm.rotation.z += (Math.PI / 2 - rArm.rotation.z) * 0.1; 
                 rArm.rotation.y += (-Math.PI / 8 - rArm.rotation.y) * 0.1; 
                 lArm.rotation.z += (-Math.PI / 4 - lArm.rotation.z) * 0.1; 
-                player.position.y += (GROUND_Y - 0.1 - player.position.y) * 0.1;
+                
+                // Jumpshot: Raise player slightly
+                if (!player.userData.isLayup) {
+                    player.position.y += (GROUND_Y + JUMPSHOT_HEIGHT - player.position.y) * 0.1;
+                } else {
+                    // Layup: Stay grounded until release
+                    player.position.y = GROUND_Y;
+                }
 
             } else if (isJumping) { 
                 // Layup/Jump Pose
-                // The higher the player, the higher the arm is
-                const targetArmZ = Math.PI / 2 + Math.PI / 4 * Math.min(1, playerHeightRatio * 2); 
+                const targetArmZ = Math.PI / 2 + Math.PI / 4 * Math.min(1, playerJumpRatio * 2); 
                 rArm.rotation.z += (targetArmZ - rArm.rotation.z) * 0.2; 
                 rArm.rotation.y += (0 - rArm.rotation.y) * 0.2; 
                 
-                // Non-shooting arm is straight down or slightly out
                 lArm.rotation.z += (-Math.PI / 16 - lArm.rotation.z) * 0.2;
                 
             } else if (isShooting) {
                 // Shot Follow-through (Jumpshot or Layup release)
                 rArm.rotation.z += (Math.PI * 1.5 - rArm.rotation.z) * 0.2;
                 lArm.rotation.z += (0 - lArm.rotation.z) * 0.2;
-                player.position.y += (GROUND_Y - player.position.y) * 0.1; // Fall back down if not handled by jump physics
+                player.position.y += (GROUND_Y - player.position.y) * 0.1; 
                 
             } else {
                 // Idle / Dribbling Pose
@@ -743,32 +798,26 @@
             }
         }
         
-        // --- NEW: Opponent AI ---
         function updateOpponentAI() {
-            if (!opponent || isShooting) return; // Opponent freezes when ball is in the air
+            // ... (AI logic remains the same) ...
+            if (!opponent || isShooting) return; 
 
             const playerPos = player.position;
             const oppPos = opponent.position;
 
-            // 1. Determine Target X (Defensive or Following)
             let targetX = 0;
             let targetZ = AI_DEFENSE_Z;
             let isClose = oppPos.distanceTo(playerPos) < AI_PLAYER_FOLLOW_DIST;
             let isPlayerNearHoop = playerPos.z < 0; 
 
             if (isPlayerNearHoop && isClose) {
-                // Man-to-man defense: follow player's X position closely
                 targetX = playerPos.x;
-                
-                // Defense positioning: stay between the player and the rim
                 targetZ = Math.min(oppPos.z, playerPos.z - 1.5, AI_DEFENSE_Z);
             } else {
-                // Zone defense: return to the key
                 targetX = 0;
                 targetZ = AI_DEFENSE_Z;
             }
 
-            // 2. Movement Vector
             const moveSpeed = AI_SPEED;
             const dx = targetX - oppPos.x;
             const dz = targetZ - oppPos.z;
@@ -776,16 +825,13 @@
             const distanceSq = dx * dx + dz * dz;
 
             if (distanceSq > 0.1) {
-                // Normalize and apply speed
                 const distance = Math.sqrt(distanceSq);
                 oppPos.x += (dx / distance) * moveSpeed;
                 oppPos.z += (dz / distance) * moveSpeed;
             }
 
-            // 3. Clamping and Rotation
             oppPos.x = Math.min(FENCE_X - 1, Math.max(-(FENCE_X - 1), oppPos.x));
             
-            // Always face the player (Simple)
             const angle = Math.atan2(playerPos.x - oppPos.x, playerPos.z - oppPos.z);
             opponent.rotation.y += (angle - opponent.rotation.y) * 0.1;
         }
@@ -793,7 +839,8 @@
 
         // ... (checkBallHoopCollision, quadraticBezier, updatePhysics remain the same) ...
         function checkBallHoopCollision() {
-            // ... (Backboard and Rim collision check remains the same) ...
+            // ... (Collision code remains the same) ...
+            const RIM_THICKNESS = 0.02;
             const BACKBOARD_Z_POS = RIM_Z_POS - 0.228 - 0.03 / 2;
             if (ball.position.z < BACKBOARD_Z_POS + BALL_RADIUS && ball.position.z > BACKBOARD_Z_POS && ballVelocity.z < 0) {
                 if (Math.abs(ball.position.x) < 0.915 && ball.position.y < RIM_Y_POS + 1.07) {
@@ -824,7 +871,8 @@
             
             if (ball.userData.inRimArea && ballBottomY < RIM_BOTTOM_Y && ballVelocity.y < 0) {
                 if (rimDist < RIM_RADIUS - BALL_RADIUS / 2) { 
-                    updateScore(3);
+                    const isThreePointer = player.position.z > (RIM_Z_POS + 6.75); 
+                    updateScore(isThreePointer ? 3 : 2);
                     ballVelocity.y = -2; 
                     ballVelocity.x = 0;
                     ballVelocity.z = 0;
@@ -887,7 +935,8 @@
                     ballVelocity.set(0, -2, 0); 
                     ball.userData.scored = true;
                     isGuaranteedShot = false; 
-                    updateScore(3);
+                    const isThreePointer = player.position.z > (RIM_Z_POS + 6.75); 
+                    updateScore(isThreePointer ? 3 : 2);
                     updateMessage("PERFECT RELEASE! SWISH!");
                 }
                 
@@ -918,7 +967,7 @@
 
         }
 
-        // --- Event Handlers (Updated for Spacebar) ---
+        // --- Event Handlers (Updated for unified 'E' key) ---
         document.addEventListener('keydown', (event) => {
             const key = event.key.toLowerCase();
             if (keysPressed.hasOwnProperty(key)) {
@@ -928,20 +977,17 @@
             if (key === 'e' && !isShooting && !isCharging) {
                 isCharging = true;
                 chargeStartTime = gameClock;
-                document.getElementById('shot-meter-container').style.display = 'block';
-            }
-            
-            // NEW: Jump/Layup Trigger
-            if (key === ' ' && !isShooting && !isJumping && !isCharging) {
-                isJumping = true;
-                player.userData.verticalVelocity = JUMP_VELOCITY;
                 
-                const distToHoop = player.position.clone().setY(0).distanceTo(shotTargetPos.clone().setY(0));
-                
-                if (distToHoop < LAYUP_DISTANCE) {
-                    launchLayup();
+                if (isInThePaint()) {
+                    player.userData.isLayup = true;
+                    // For layup, don't show meter, but start the jump immediately on press
+                    isJumping = true; 
+                    player.userData.verticalVelocity = JUMP_VELOCITY;
+                    updateMessage("Charging Layup...");
                 } else {
-                    updateMessage("Jump! (Use 'E' to shoot at this distance)");
+                    player.userData.isLayup = false;
+                    document.getElementById('shot-meter-container').style.display = 'block';
+                    // Jumpshot jump is handled in the animation update
                 }
             }
         });
@@ -952,35 +998,38 @@
                 keysPressed[key] = false;
             }
             
-            // NEW: Jump key release does nothing unless Layup was not triggered
-            if (key === ' ' && isJumping && !isShooting) {
-                // Allows player to jump without shooting if far away
-            }
-
             if (key === 'e' && isCharging) {
                 isCharging = false;
                 
-                const chargeDuration = gameClock - chargeStartTime;
-                let power = chargeDuration / MAX_CHARGE_TIME;
-                const meterValue = power * 2; 
-
-                if (meterValue >= 0.9 && meterValue <= 1.1) {
-                    isGuaranteedShot = true;
-                    updateMessage("PERFECT RELEASE! (Green Light)");
-                    launchBall(1.0); 
+                if (player.userData.isLayup) {
+                    // Layup release logic
+                    launchLayup();
+                    
                 } else {
-                    isGuaranteedShot = false;
-                    power = Math.min(1.8, Math.max(0.2, power));
-                    launchBall(power);
-                    updateMessage(meterValue < 0.9 ? "Too short!" : "Too long!");
+                    // Jumpshot release logic
+                    const chargeDuration = gameClock - chargeStartTime;
+                    let power = chargeDuration / MAX_CHARGE_TIME;
+                    const meterValue = power * 2; 
+
+                    if (meterValue >= 0.9 && meterValue <= 1.1) {
+                        isGuaranteedShot = true;
+                        updateMessage("PERFECT RELEASE! (Green Light)");
+                        launchJumpshot(1.0); 
+                    } else {
+                        isGuaranteedShot = false;
+                        power = Math.min(1.8, Math.max(0.2, power));
+                        launchJumpshot(power);
+                        updateMessage(meterValue < 0.9 ? "Too short!" : "Too long!");
+                    }
                 }
                 
+                player.userData.isLayup = false; 
                 document.getElementById('shot-meter-container').style.display = 'none';
             }
         });
 
         function updateShotMeter() {
-            if (!isCharging) return;
+            if (!isCharging || player.userData.isLayup) return;
 
             const chargeDuration = gameClock - chargeStartTime;
             let power = chargeDuration / MAX_CHARGE_TIME;
@@ -1001,7 +1050,7 @@
             
             updateMovementAndDribble();
             updatePlayerAnimation();
-            updateOpponentAI(); // NEW AI Update
+            updateOpponentAI(); 
             updatePhysics();
             updateShotMeter();
 
@@ -1010,11 +1059,11 @@
 
         // --- Initialization ---
         function init() {
+            // ... (Initialization remains the same) ...
             const container = document.getElementById('game-container');
             const width = container.clientWidth;
             const height = container.clientHeight;
 
-            // Scene, Camera, Renderer, Lighting, Fog (Same as before)
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
             camera.position.set(0, 4, 10);
@@ -1045,12 +1094,11 @@
             
             scene.fog = new THREE.Fog(0x1a1a2e, 15, 50);
 
-            // Create Game Elements
             createCourt();
             createHoop();
             createBall();
             createPlayer();
-            createOpponent(); // NEW AI Defender
+            createOpponent();
             resetBall(); 
 
             window.addEventListener('resize', onWindowResize);
