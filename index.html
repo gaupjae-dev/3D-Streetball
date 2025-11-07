@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D Streetball Shooter - Animated Player</title>
+    <!-- Load Three.js library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
@@ -120,6 +121,7 @@
         <div id="instructions">
             Use **W, A, S, D** to dribble and move. **HOLD E** to charge shot, **RELEASE E** to shoot!
         </div>
+        <!-- Shot Meter UI -->
         <div id="shot-meter-container">
             <div id="shot-bar"></div>
             <div id="shot-target"></div>
@@ -386,7 +388,7 @@
             scene.add(ball);
         }
 
-        // 1. ⚙️ Update Player Creation for Easier Animation
+        // 1. ⚙️ Preparation: Tagging the Hand Mesh
         function createPlayer() {
             const playerGroup = new THREE.Group();
             
@@ -396,7 +398,7 @@
             const torsoRadius = 0.25;
             const limbWidth = 0.1;
             const legHeight = 0.9;
-            const armLength = 0.6;
+            const armLength = 0.6; // Total arm length
             
             const bodyMaterial = new THREE.MeshLambertMaterial({ color: BODY_COLOR }); 
             const skinMaterial = new THREE.MeshLambertMaterial({ color: SKIN_COLOR }); 
@@ -456,7 +458,7 @@
             rightLowerArm.rotation.z = Math.PI / 2;
             rightArmGroup.add(rightLowerArm);
             
-            // Right Hand 
+            // Right Hand (Tagging Mesh)
             const rightHand = new THREE.Mesh(handGeometry, skinMaterial);
             rightHand.position.x = upperArmLength + lowerArmLength + 0.05; 
             rightArmGroup.add(rightHand);
@@ -529,6 +531,7 @@
             leftUpperLeg.position.y = upperLegLength / 2; 
             leftLegGroup.add(leftUpperLeg);
 
+            // Knee
             const leftKnee = new THREE.Mesh(kneeGeometry, skinMaterial);
             leftKnee.position.y = upperLegLength;
             leftLegGroup.add(leftKnee);
@@ -565,6 +568,9 @@
             player.userData.rightArmGroup = rightArmGroup; 
             player.userData.leftArmGroup = leftArmGroup;
             
+            // CRUCIAL: Tag the right hand mesh for ball tracking
+            player.userData.rightHand = rightHand;
+            
             scene.add(player);
         }
 
@@ -583,11 +589,11 @@
             if (isShooting) return;
 
             // 1. Set the initial launch position (player's hand height)
-            ball.position.set(
-                player.position.x,
-                player.position.y + 1.8, // Hand height
-                player.position.z - 0.5 
-            ); 
+            // Use the current hand position for the launch origin
+            const launchPosition = new THREE.Vector3();
+            player.userData.rightHand.getWorldPosition(launchPosition);
+
+            ball.position.copy(launchPosition); 
 
             isShooting = true;
 
@@ -665,20 +671,27 @@
             }
 
 
-            // 4. ⚾ Tie Ball to Hand During Charge
             // Dribble Logic / Holding Ball Position
             const isMovingOrCharging = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s || isCharging;
             
             if (isMovingOrCharging) {
                 if (isCharging) {
-                    // NEW: Lock ball to a position relative to the right hand (Using player position + offsets)
-                    ball.position.set(
-                        player.position.x + 0.5,
-                        player.position.y + 1.8, 
-                        player.position.z - 0.5 
-                    );
+                    // --- NEW: Lock ball to the actual right hand position ---
+                    
+                    // 1. Get the hand mesh reference
+                    const hand = player.userData.rightHand;
+                    
+                    // 2. Create a Vector3 to store the hand's World Position
+                    const handWorldPosition = new THREE.Vector3();
+                    
+                    // 3. CRUCIAL: Calculates the hand's final position after all parent rotations.
+                    hand.getWorldPosition(handWorldPosition);
+
+                    // 4. Set the ball's position to the hand's world position
+                    ball.position.copy(handWorldPosition);
+                    
                 } else {
-                    // Dribble animation
+                    // Dribble animation (Existing code remains here)
                     const bounceY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE)) * DRIBBLE_HEIGHT;
                     
                     ball.position.set(
@@ -701,7 +714,6 @@
             camera.position.x += (player.position.x - camera.position.x) * CAMERA_SMOOTHNESS;
         }
 
-        // 2. 🎬 Create the Animation Logic (updatePlayerAnimation)
         /**
          * Updates the player's pose based on game state (Charging, Shooting, Idle).
          */
@@ -911,7 +923,6 @@
 
             updateMovementAndDribble();
             
-            // 3. ▶️ Integrate into the animate loop
             updatePlayerAnimation(); 
 
             // Update Shot Meter UI
