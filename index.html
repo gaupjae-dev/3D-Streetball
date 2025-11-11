@@ -72,8 +72,8 @@
             width: 100%;
             height: 100%;
         }
-        /* Shot Meter Styling */
-        #shot-meter-container {
+        /* --- JUMPSHOT METER (Horizontal) --- */
+        #jumpshot-meter-container {
             position: absolute;
             bottom: 50px; 
             left: 50%;
@@ -88,10 +88,10 @@
             z-index: 20;
             display: none; /* Initially hidden */
         }
-        #shot-bar {
+        #jumpshot-bar {
             height: 100%;
             width: 0%;
-            /* Gradient: Red (too little) -> Yellow (good) -> Green (perfect) -> Yellow -> Red (too much) */
+            /* Gradient: Red -> Yellow -> Green (perfect) -> Yellow -> Red */
             background: linear-gradient(90deg, 
                 rgba(255, 0, 0, 0.9), 
                 rgba(255, 255, 0, 0.9) 40%, 
@@ -101,7 +101,7 @@
             );
             transition: width 0.01s linear;
         }
-        #shot-target {
+        #jumpshot-target {
             position: absolute;
             top: 0;
             left: 45%; 
@@ -112,8 +112,50 @@
             box-sizing: border-box;
             background: rgba(255, 255, 255, 0.1);
             pointer-events: none;
-            /* Added smooth transition for visual appeal */
             transition: left 0.1s ease-out, width 0.1s ease-out; 
+        }
+
+        /* --- LAYUP METER (Vertical) --- */
+        #layup-meter-container {
+            position: absolute;
+            /* Positioning: near player hand, offset from the bottom right */
+            bottom: 100px; 
+            right: 50px; 
+            width: 20px;
+            height: 150px; 
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            border: 2px solid #00ffaa;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            z-index: 20;
+            display: none; /* Initially hidden */
+        }
+        #layup-bar {
+            width: 100%;
+            height: 0%;
+            position: absolute; 
+            bottom: 0;
+            /* Vertical Gradient: Bottom (Red) -> Middle (Green) -> Top (Red) */
+            background: linear-gradient(to top, 
+                rgba(255, 0, 0, 0.9) 0%,
+                rgba(0, 255, 0, 0.9) 40%, 
+                rgba(0, 255, 0, 0.9) 60%, 
+                rgba(255, 0, 0, 0.9) 100%
+            );
+            transition: height 0.01s linear;
+        }
+        #layup-target {
+            position: absolute;
+            bottom: 40%; /* 40% to 60% is the perfect zone (20% total) */
+            left: 0; 
+            width: 100%;
+            height: 20%; /* Wider perfect window */
+            border-top: 2px solid rgba(0, 0, 0, 0.8);
+            border-bottom: 2px solid rgba(0, 0, 0, 0.8);
+            box-sizing: border-box;
+            background: rgba(255, 255, 255, 0.1);
+            pointer-events: none;
         }
     </style>
 </head>
@@ -127,9 +169,15 @@
             Use W, A, S, D to move. **HOLD E** to **JUMPSHOT (outside paint)** or **LAYUP (inside paint)**. 
             Press **C** to toggle **Goal View**!
         </div>
-        <div id="shot-meter-container">
-            <div id="shot-bar"></div>
-            <div id="shot-target"></div>
+        
+        <div id="jumpshot-meter-container">
+            <div id="jumpshot-bar"></div>
+            <div id="jumpshot-target"></div>
+        </div>
+        
+        <div id="layup-meter-container">
+            <div id="layup-bar"></div>
+            <div id="layup-target"></div>
         </div>
     </div>
 
@@ -143,12 +191,22 @@
         let ballAngularVelocity = new THREE.Vector3(0, 0, 0); 
         const GRAVITY = new THREE.Vector3(0, -9.8, 0); 
         const TIME_STEP = 1/60; 
-        const FENCES = []; // To store fence objects for collision
+        const FENCES = []; 
 
         // Shot Meter State
         let isCharging = false;
         let chargeStartTime = 0;
-        const MAX_CHARGE_TIME = 1.5; 
+        
+        // Jumpshot Constants
+        const MAX_CHARGE_TIME_JUMPSHOT = 1.5; 
+        const PERFECT_WINDOW_JUMPSHOT_MIN = 0.45;
+        const PERFECT_WINDOW_JUMPSHOT_MAX = 0.55;
+        
+        // NEW Layup Constants
+        const MAX_CHARGE_TIME_LAYUP = 0.5; // Much shorter charge time
+        const PERFECT_WINDOW_LAYUP_MIN = 0.40; // Wider window (40% to 60%)
+        const PERFECT_WINDOW_LAYUP_MAX = 0.60;
+
         let isGuaranteedShot = false; 
         let shotProgress = 0;
         let shotStartPos = new THREE.Vector3();
@@ -157,7 +215,7 @@
         
         // Player State
         const JUMP_VELOCITY = 6; 
-        const JUMPSHOT_HEIGHT = 1.0; // Max height player jumps for a jumpshot
+        const JUMPSHOT_HEIGHT = 1.0; 
         let isJumping = false;
         const GROUND_Y = -0.24; 
         const LAYUP_AREA_Z = 5.8; // Z-limit for the key 
@@ -178,7 +236,7 @@
         const RIM_Z_POS = -8; 
         const RIM_CENTER = new THREE.Vector3(0, RIM_Y_POS, RIM_Z_POS);
         const BOUNCE_DAMPING = 0.6; 
-        const RIM_DAMPING = 0.8; // Stronger damping for rim/backboard hits
+        const RIM_DAMPING = 0.8; 
 
         // Court Boundaries 
         const FENCE_X = 15;
@@ -191,7 +249,7 @@
         const AI_BLOCK_RADIUS = 2; 
 
         // Camera State
-        let currentCameraView = 'player'; // 'player' or 'goal'
+        let currentCameraView = 'player'; 
         let lastCKeyPressTime = 0;
 
         // --- Utility Functions ---
@@ -594,21 +652,24 @@
             ballAngularVelocity.set(0, 0, 0);
             isShooting = false;
             isGuaranteedShot = false;
-            player.userData.isLayup = false;
+            player.userData.isLayup = false; // Reset layup state
             isJumping = false;
             player.userData.verticalVelocity = 0;
             player.position.y = GROUND_Y;
             
             ball.userData.scored = false;
             ball.userData.inRimArea = false;
-            document.getElementById('shot-meter-container').style.display = 'none';
+            
+            // Hide both meters on reset
+            document.getElementById('jumpshot-meter-container').style.display = 'none';
+            document.getElementById('layup-meter-container').style.display = 'none';
             
             updateMessage("Ready to shoot! Hold E to shoot.");
             
-            updateMovementAndDribble(); // Update ball position to hand
+            updateMovementAndDribble(); 
         }
 
-        function launchLayup() {
+        function launchLayup(power) {
             if (isShooting) return;
 
             // Check for AI influence (simple block)
@@ -620,25 +681,38 @@
             let vy = 12;
             let vz = 12;
             
-            // Apply randomness/error
-            vz += (Math.random() - 0.5) * 2;
-            vy += (Math.random() - 0.5) * 1;
-            vx += (Math.random() - 0.5) * 0.5;
-
+            if (isGuaranteedShot) {
+                // Perfect Layup (Green Window): Minimal error
+                vz = 14; 
+                vy = 13;
+                vx = 0; 
+                updateMessage("PERFECT LAYUP! SWISH!");
+            } else {
+                // Non-perfect Layup: High error and lower velocity based on 'power' 
+                // power is 0 (too early) or 1 (too late). Ideal is 0.5.
+                const idealPower = 0.5;
+                const errorFactor = Math.abs(power - idealPower) * 5; // Scaling factor for error
+                
+                vz = 11 + (Math.random() - 0.5) * 4 * errorFactor; 
+                vy = 11 + (Math.random() - 0.5) * 3 * errorFactor;
+                vx = (Math.random() - 0.5) * 3 * errorFactor; 
+                
+                updateMessage("Layup Contested!");
+            }
+            
             // Apply AI block penalty
             if (isBlocked) {
                 vy *= 0.7; 
                 vz *= 0.8; 
                 vx += (Math.random() > 0.5 ? 1 : -1) * 2; 
                 updateMessage("BLOCKED! Heavy Contest!");
-            } else {
-                updateMessage("LAYUP!");
             }
 
             // Set launch position and velocity
             const launchPosition = new THREE.Vector3();
             player.userData.rightHand.getWorldPosition(launchPosition);
             ball.position.copy(launchPosition); 
+            
             ballVelocity.set(vx, vy, -vz); 
             // Layup usually has little backspin, just a slight rotation
             ballAngularVelocity.set((Math.random() - 0.5) * 5, 10, 0);
@@ -667,6 +741,7 @@
                 shotDuration = Math.min(2.0, 0.7 + distZ * 0.07); 
                 // Add perfect backspin to guaranteed shot for visual
                 ballAngularVelocity.set(-15, 0, 0); 
+                updateMessage("PERFECT RELEASE! SWISH!"); // Message added here for consistency
                 return;
             }
 
@@ -708,19 +783,22 @@
             const RIGHT_ARM = player.userData.rightArmGroup;
             const LEFT_ARM = player.userData.leftArmGroup;
             const LEG_GROUPS = player.userData.legGroups;
-            const MAX_JUMP_Y = GROUND_Y + JUMPSHOT_HEIGHT;
             
             // Simple Animation for Movement
             const isMoving = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s;
             const walkCycle = isMoving && !isCharging ? Math.sin(gameClock * 15) : 0;
             
-            LEG_GROUPS[0].rotation.x = walkCycle * 0.3;
-            LEG_GROUPS[1].rotation.x = -walkCycle * 0.3;
+            // Simplified Leg Animation (prevent error if groups are missing)
+            if (LEG_GROUPS[0] && LEG_GROUPS[1]) {
+                LEG_GROUPS[0].rotation.x = walkCycle * 0.3;
+                LEG_GROUPS[1].rotation.x = -walkCycle * 0.3;
+            }
             
 
             if (isCharging) {
                 // Charging/Crouch
-                const chargeProgress = Math.min(1, (performance.now() - chargeStartTime) / (MAX_CHARGE_TIME * 1000));
+                const maxCharge = player.userData.isLayup ? MAX_CHARGE_TIME_LAYUP : MAX_CHARGE_TIME_JUMPSHOT;
+                const chargeProgress = Math.min(1, (performance.now() - chargeStartTime) / (maxCharge * 1000));
                 
                 // Crouch the player a little
                 player.position.y = GROUND_Y - 0.1 * chargeProgress;
@@ -733,10 +811,9 @@
             } else if (isJumping) {
                 // Jumpshot / Layup Jump
                 
-                // Animate jump height (separate from verticalVelocity)
+                // Animate jump height 
                 const jumpProgress = (player.position.y - GROUND_Y) / (JUMPSHOT_HEIGHT);
                 
-                // Shooting motion starts after apex (or immediately for a layup)
                 if (player.userData.isLayup) {
                     RIGHT_ARM.rotation.x = Math.PI * 1.5; // Layup extension
                     LEFT_ARM.rotation.x = Math.PI;
@@ -808,7 +885,6 @@
             
             if (isShooting) {
                  // Ball is now physics-controlled (or animated if guaranteed)
-                 // This block handles the perfect shot animation trajectory
                 if (isGuaranteedShot) {
                     shotProgress += TIME_STEP;
                     const t = Math.min(1, shotProgress / shotDuration);
@@ -1069,9 +1145,23 @@
                     if (!isShooting && !isCharging) {
                         isCharging = true;
                         chargeStartTime = performance.now();
-                        document.getElementById('shot-meter-container').style.display = 'block';
-                        isJumping = true; // Start the jump/crouch animation
-                        player.userData.verticalVelocity = JUMP_VELOCITY * 0.5; // Half speed for crouch
+                        
+                        // NEW LOGIC: Set Layup state and display correct meter
+                        player.userData.isLayup = isInThePaint();
+                        
+                        if (player.userData.isLayup) {
+                            document.getElementById('layup-meter-container').style.display = 'block';
+                            document.getElementById('jumpshot-meter-container').style.display = 'none';
+                            player.userData.verticalVelocity = JUMP_VELOCITY * 0.8; // Higher jump for layup
+                            isJumping = true; 
+                            updateMessage("Charging Layup...");
+                        } else {
+                            document.getElementById('jumpshot-meter-container').style.display = 'block';
+                            document.getElementById('layup-meter-container').style.display = 'none';
+                            player.userData.verticalVelocity = JUMP_VELOCITY * 0.5; // Half speed for jumpshot crouch
+                            isJumping = true;
+                            updateMessage("Charging Jumpshot...");
+                        }
                     }
                     keysPressed.e = true; 
                     break;
@@ -1095,27 +1185,45 @@
                 case 'e':
                     if (isCharging) {
                         isCharging = false;
-                        document.getElementById('shot-meter-container').style.display = 'none';
+                        
+                        // Hide both meters
+                        document.getElementById('jumpshot-meter-container').style.display = 'none';
+                        document.getElementById('layup-meter-container').style.display = 'none';
+                        
                         const chargeTime = (performance.now() - chargeStartTime) / 1000;
-                        let power = Math.min(1.8, chargeTime / (MAX_CHARGE_TIME * 0.7)); // Max power slightly above 1.0
-
-                        if (isInThePaint()) {
-                            player.userData.isLayup = true;
-                            // Trigger full jump on key up for a layup
-                            player.userData.verticalVelocity = JUMP_VELOCITY * 0.8;
-                            launchLayup();
-                        } else {
-                            // Check for perfect release (green zone is 45% to 55% of MAX_CHARGE_TIME)
-                            const perfectReleaseMin = MAX_CHARGE_TIME * 0.45;
-                            const perfectReleaseMax = MAX_CHARGE_TIME * 0.55;
-
-                            if (chargeTime >= perfectReleaseMin && chargeTime <= perfectReleaseMax) {
+                        
+                        if (player.userData.isLayup) {
+                            // Layup release logic
+                            const maxTime = MAX_CHARGE_TIME_LAYUP;
+                            const minWindow = maxTime * PERFECT_WINDOW_LAYUP_MIN;
+                            const maxWindow = maxTime * PERFECT_WINDOW_LAYUP_MAX;
+                            
+                            // Power is calculated relative to the full charge time
+                            let power = chargeTime / maxTime;
+                            
+                            if (chargeTime >= minWindow && chargeTime <= maxWindow) {
                                 isGuaranteedShot = true;
-                                launchJumpshot(1.0); // Launch animation
-                                updateMessage("PERFECT RELEASE! SWISH!");
                             } else {
-                                launchJumpshot(power);
+                                isGuaranteedShot = false;
                             }
+                            
+                            launchLayup(power);
+
+                        } else {
+                            // Jumpshot release logic
+                            const maxTime = MAX_CHARGE_TIME_JUMPSHOT;
+                            const minWindow = maxTime * PERFECT_WINDOW_JUMPSHOT_MIN;
+                            const maxWindow = maxTime * PERFECT_WINDOW_JUMPSHOT_MAX;
+                            
+                            let power = Math.min(1.8, chargeTime / (maxTime * 0.7)); 
+
+                            if (chargeTime >= minWindow && chargeTime <= maxWindow) {
+                                isGuaranteedShot = true;
+                            } else {
+                                isGuaranteedShot = false;
+                            }
+                            
+                            launchJumpshot(power);
                         }
                     }
                     keysPressed.e = false;
@@ -1130,25 +1238,36 @@
         function updateShotMeter() {
              if (isCharging) {
                 const chargeTime = (performance.now() - chargeStartTime) / 1000;
-                const progress = Math.min(1, chargeTime / MAX_CHARGE_TIME);
                 
-                const shotBar = document.getElementById('shot-bar');
-                const shotTarget = document.getElementById('shot-target');
+                if (player.userData.isLayup) {
+                    // --- Vertical Layup Meter Update ---
+                    const maxTime = MAX_CHARGE_TIME_LAYUP;
+                    const progress = Math.min(1, chargeTime / maxTime);
+                    const layupBar = document.getElementById('layup-bar');
+                    layupBar.style.height = `${progress * 100}%`;
+                    
+                    if (progress >= 1) layupBar.style.background = 'red';
+                    
+                } else {
+                    // --- Horizontal Jumpshot Meter Update ---
+                    const maxTime = MAX_CHARGE_TIME_JUMPSHOT;
+                    const progress = Math.min(1, chargeTime / maxTime);
+                    const shotBar = document.getElementById('jumpshot-bar');
+                    const shotTarget = document.getElementById('jumpshot-target');
 
-                shotBar.style.width = `${progress * 100}%`;
-                
-                // Adjust target width/position based on difficulty (e.g., further shots narrow the target)
-                const distance = player.position.distanceTo(RIM_CENTER);
-                const targetBaseWidth = 10;
-                const targetWidth = Math.max(4, targetBaseWidth - distance * 0.5); // Narrows target with distance
-                const targetLeft = 50 - targetWidth / 2;
+                    shotBar.style.width = `${progress * 100}%`;
+                    
+                    // Adjust target width/position based on difficulty (e.g., further shots narrow the target)
+                    const distance = player.position.distanceTo(RIM_CENTER);
+                    const targetBaseWidth = 10;
+                    const targetWidth = Math.max(4, targetBaseWidth - distance * 0.5); // Narrows target with distance
+                    const targetLeft = 50 - targetWidth / 2;
 
-                shotTarget.style.width = `${targetWidth}%`;
-                shotTarget.style.left = `${targetLeft}%`;
-                
-                // Flash meter if overcharged
-                if (progress >= 1) {
-                    shotBar.style.background = 'red';
+                    shotTarget.style.width = `${targetWidth}%`;
+                    shotTarget.style.left = `${targetLeft}%`;
+                    
+                    // Flash meter if overcharged
+                    if (progress >= 1) shotBar.style.background = 'red';
                 }
             }
         }
