@@ -202,7 +202,7 @@
         const PERFECT_WINDOW_JUMPSHOT_MIN = 0.45;
         const PERFECT_WINDOW_JUMPSHOT_MAX = 0.55;
         
-        // NEW Layup Constants
+        // Layup Constants
         const MAX_CHARGE_TIME_LAYUP = 0.5; // Much shorter charge time
         const PERFECT_WINDOW_LAYUP_MIN = 0.40; // Wider window (40% to 60%)
         const PERFECT_WINDOW_LAYUP_MAX = 0.60;
@@ -227,6 +227,12 @@
         const DRIBBLE_RATE = 10; 
         let keysPressed = { w: false, a: false, s: false, d: false, e: false, c: false }; 
         let gameClock = 0;
+
+        // NEW Animation States
+        let isMoving = false; // Tracks if WASD keys are active
+        let isIdle = false; // True when stationary AND not charging/shooting
+        const WALK_BOB_SPEED = 15;
+        const ARM_SWING_ANGLE = 0.5; // Max angle for arm swing in radians
 
         // Hoop and Ball constants
         const BALL_RADIUS = 0.24;
@@ -344,8 +350,6 @@
             const LINE_WIDTH = 0.1;
             const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
             const lineY = -BALL_RADIUS + 0.005;
-
-            // ... (All line creation code from the original) ...
 
             const PERIMETER_X = 14.95;
             const PERIMETER_Z = 19.95;
@@ -666,6 +670,7 @@
             
             updateMessage("Ready to shoot! Hold E to shoot.");
             
+            // Explicitly call update to snap positions/animations on reset
             updateMovementAndDribble(); 
         }
 
@@ -689,9 +694,8 @@
                 updateMessage("PERFECT LAYUP! SWISH!");
             } else {
                 // Non-perfect Layup: High error and lower velocity based on 'power' 
-                // power is 0 (too early) or 1 (too late). Ideal is 0.5.
                 const idealPower = 0.5;
-                const errorFactor = Math.abs(power - idealPower) * 5; // Scaling factor for error
+                const errorFactor = Math.abs(power - idealPower) * 5; 
                 
                 vz = 11 + (Math.random() - 0.5) * 4 * errorFactor; 
                 vy = 11 + (Math.random() - 0.5) * 3 * errorFactor;
@@ -784,29 +788,26 @@
             const LEFT_ARM = player.userData.leftArmGroup;
             const LEG_GROUPS = player.userData.legGroups;
             
-            // Simple Animation for Movement
-            const isMoving = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s;
-            const walkCycle = isMoving && !isCharging ? Math.sin(gameClock * 15) : 0;
-            
-            // Simplified Leg Animation (prevent error if groups are missing)
-            if (LEG_GROUPS[0] && LEG_GROUPS[1]) {
-                LEG_GROUPS[0].rotation.x = walkCycle * 0.3;
-                LEG_GROUPS[1].rotation.x = -walkCycle * 0.3;
-            }
-            
+            const JUMP_UP_ANGLE = Math.PI * 1.3;
+            const SHOT_CHARGE_ANGLE = Math.PI / 4;
 
             if (isCharging) {
-                // Charging/Crouch
+                // --- 2. Transition/Crouch (Integrated into Charge) ---
                 const maxCharge = player.userData.isLayup ? MAX_CHARGE_TIME_LAYUP : MAX_CHARGE_TIME_JUMPSHOT;
-                const chargeProgress = Math.min(1, (performance.now() - chargeStartTime) / (maxCharge * 1000));
+                const chargeRatio = Math.min(1, (performance.now() - chargeStartTime) / (maxCharge * 1000));
                 
-                // Crouch the player a little
-                player.position.y = GROUND_Y - 0.1 * chargeProgress;
+                // Crouch the player (makes them visibly 'bend their knees')
+                const crouchY = GROUND_Y - 0.2 * chargeRatio;
+                player.position.y += (crouchY - player.position.y) * 0.2; 
 
                 // Bring arms up to chest
-                const armAngle = Math.PI / 2 + Math.PI / 4 * chargeProgress;
+                const armAngle = Math.PI / 2 + SHOT_CHARGE_ANGLE * chargeRatio;
                 RIGHT_ARM.rotation.x = armAngle;
                 LEFT_ARM.rotation.x = armAngle;
+                
+                // Reset arm swing z rotation
+                RIGHT_ARM.rotation.z *= 0.8;
+                LEFT_ARM.rotation.z *= 0.8;
 
             } else if (isJumping) {
                 // Jumpshot / Layup Jump
@@ -815,30 +816,67 @@
                 const jumpProgress = (player.position.y - GROUND_Y) / (JUMPSHOT_HEIGHT);
                 
                 if (player.userData.isLayup) {
-                    RIGHT_ARM.rotation.x = Math.PI * 1.5; // Layup extension
-                    LEFT_ARM.rotation.x = Math.PI;
+                    // Layup Jump extension
+                    RIGHT_ARM.rotation.x = JUMP_UP_ANGLE + 0.2; 
+                    LEFT_ARM.rotation.x = JUMP_UP_ANGLE * 0.8;
                 } else {
+                    // Jumpshot release follow through
                     const releaseProgress = Math.min(1, jumpProgress * 2);
-                    RIGHT_ARM.rotation.x = Math.PI * 0.7 + Math.PI * 0.6 * releaseProgress;
-                    LEFT_ARM.rotation.x = Math.PI * 0.7 + Math.PI * 0.6 * releaseProgress;
+                    RIGHT_ARM.rotation.x = JUMP_UP_ANGLE;
+                    LEFT_ARM.rotation.x = JUMP_UP_ANGLE;
                 }
                 
             } else if (isShooting && isGuaranteedShot) {
                 // Follow the smooth shot animation path
-                const t = shotProgress / shotDuration;
                 
                 // Arms remain extended after release
-                RIGHT_ARM.rotation.x = Math.PI * 1.3;
-                LEFT_ARM.rotation.x = Math.PI * 1.3;
+                RIGHT_ARM.rotation.x = JUMP_UP_ANGLE;
+                LEFT_ARM.rotation.x = JUMP_UP_ANGLE;
                 
             } else {
-                // Idle / Moving / Holding
-                player.position.y = GROUND_Y;
+                // --- Dribbling/Idle Pose ---
                 
-                // Dribbling arms
-                const dribbleY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE * 0.5)) * 0.4;
-                RIGHT_ARM.rotation.x = Math.PI * 0.6 + dribbleY;
-                LEFT_ARM.rotation.x = Math.PI * 0.6 + dribbleY;
+                // Player vertical position snap back to ground
+                player.position.y += (GROUND_Y - player.position.y) * 0.1;
+
+                isMoving = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s;
+                isIdle = !isMoving && !isCharging && !isShooting && player.position.y <= GROUND_Y + 0.01;
+
+                if (isMoving) {
+                    // **1. Walk/Run Cycle**
+                    const step = Math.sin(gameClock * WALK_BOB_SPEED);
+                    
+                    // Leg Movement (Forward/Backward rotation for stride)
+                    LEG_GROUPS[0].rotation.x = step * ARM_SWING_ANGLE; // Right Leg
+                    LEG_GROUPS[1].rotation.x = -step * ARM_SWING_ANGLE; // Left Leg
+
+                    // Arm Swing (Opposite to legs, mainly Z rotation)
+                    const armSwingZ = -step * ARM_SWING_ANGLE;
+                    
+                    // X-rotation reset for swinging
+                    RIGHT_ARM.rotation.x = Math.PI * 0.6; 
+                    LEFT_ARM.rotation.x = Math.PI * 0.6;
+                    
+                    // Smoothly transition to swing
+                    RIGHT_ARM.rotation.z += (armSwingZ + Math.PI / 4 - RIGHT_ARM.rotation.z) * 0.2; 
+                    LEFT_ARM.rotation.z += (-armSwingZ - Math.PI / 4 - LEFT_ARM.rotation.z) * 0.2; 
+                    
+                } else {
+                    // Reset legs to standing position
+                    LEG_GROUPS[0].rotation.x *= 0.8; 
+                    LEG_GROUPS[1].rotation.x *= 0.8;
+                    
+                    // Arm reset (basic dribble/hold position)
+                    const armXReset = Math.PI * 0.6;
+                    RIGHT_ARM.rotation.x += (armXReset - RIGHT_ARM.rotation.x) * 0.1;
+                    LEFT_ARM.rotation.x += (armXReset - LEFT_ARM.rotation.x) * 0.1;
+
+                    const armZRightReset = Math.PI / 4;
+                    const armZLeftReset = -Math.PI / 4;
+
+                    RIGHT_ARM.rotation.z += (armZRightReset - RIGHT_ARM.rotation.z) * 0.1; 
+                    LEFT_ARM.rotation.z += (armZLeftReset - LEFT_ARM.rotation.z) * 0.1; 
+                }
             }
         }
         
@@ -880,8 +918,7 @@
                 }
             }
             
-            // --- Simplified Dribble Logic / Holding Ball Position ---
-            const isMoving = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s;
+            // --- Dribble Logic / Holding Ball Position ---
             
             if (isShooting) {
                  // Ball is now physics-controlled (or animated if guaranteed)
@@ -921,14 +958,25 @@
                 // Dribble animation (only when moving)
                 const bounceY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE)) * DRIBBLE_HEIGHT;
                 
+                // Position ball to the side of the player based on orientation
                 ball.position.set(
                     player.position.x + 0.5 * Math.sin(player.rotation.y + Math.PI/2), // Offset to the side of the player
                     player.position.y + 0.5 + bounceY, 
                     player.position.z + 0.5 * Math.cos(player.rotation.y + Math.PI/2)
                 );
-            } else {
-                 // Holding the ball (Idle)
+            } else if (isIdle) {
+                // **3. Idle Dribble (Cross-Hand)**
+                const bounceY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE)) * 0.3; // Less bounce for idle
+                const handSwitchX = Math.sin(gameClock * 5) * 0.6; // Switches between -0.6 (Left) and 0.6 (Right)
+                
                 ball.position.set(
+                    player.position.x + handSwitchX, 
+                    player.position.y + 0.2 + bounceY, 
+                    player.position.z - 0.5 
+                );
+            } else {
+                 // Holding the ball (Idle) - fallback when neither moving, charging, nor strictly idle
+                 ball.position.set(
                     player.position.x + 0.2, 
                     player.position.y + 1.2, 
                     player.position.z - 1 
