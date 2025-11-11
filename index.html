@@ -112,6 +112,8 @@
             box-sizing: border-box;
             background: rgba(255, 255, 255, 0.1);
             pointer-events: none;
+            /* Added smooth transition for visual appeal */
+            transition: left 0.1s ease-out, width 0.1s ease-out; 
         }
     </style>
 </head>
@@ -138,10 +140,10 @@
         let score = 0;
         let isShooting = false;
         let ballVelocity = new THREE.Vector3();
-        // New: Ball rotation velocity and axis for spin
         let ballAngularVelocity = new THREE.Vector3(0, 0, 0); 
         const GRAVITY = new THREE.Vector3(0, -9.8, 0); 
         const TIME_STEP = 1/60; 
+        const FENCES = []; // To store fence objects for collision
 
         // Shot Meter State
         let isCharging = false;
@@ -158,21 +160,23 @@
         const JUMPSHOT_HEIGHT = 1.0; // Max height player jumps for a jumpshot
         let isJumping = false;
         const GROUND_Y = -0.24; 
-        const LAYUP_AREA_Z = 5.8; // Z-limit for the key (Approx 4.6m from hoop * 0.5 Scale) 
-        const LAYUP_AREA_X = 2.5; // X-limit for the key (Approx 4.9m wide * 0.5 Scale)
+        const LAYUP_AREA_Z = 5.8; // Z-limit for the key 
+        const LAYUP_AREA_X = 2.5; // X-limit for the key
         
         // Movement and Dribbling
         const PLAYER_SPEED = 0.15; 
         const DRIBBLE_HEIGHT = 0.6; 
         const DRIBBLE_RATE = 10; 
-        let keysPressed = { w: false, a: false, s: false, d: false, e: false }; 
+        let keysPressed = { w: false, a: false, s: false, d: false, e: false, c: false }; 
         let gameClock = 0;
 
         // Hoop and Ball constants
         const BALL_RADIUS = 0.24;
         const RIM_RADIUS = 0.228;
+        const RIM_THICKNESS = 0.02;
         const RIM_Y_POS = 3.05; 
         const RIM_Z_POS = -8; 
+        const RIM_CENTER = new THREE.Vector3(0, RIM_Y_POS, RIM_Z_POS);
         const BOUNCE_DAMPING = 0.6; 
         const RIM_DAMPING = 0.8; // Stronger damping for rim/backboard hits
 
@@ -188,8 +192,10 @@
 
         // Camera State
         let currentCameraView = 'player'; // 'player' or 'goal'
+        let lastCKeyPressTime = 0;
 
-        // --- Utility Functions (same as before) ---
+        // --- Utility Functions ---
+
         function onWindowResize() {
             const container = document.getElementById('game-container');
             const width = container.clientWidth;
@@ -228,22 +234,41 @@
                 side: THREE.DoubleSide
             });
 
+            // Side Walls
             const sideWallGeo = new THREE.BoxGeometry(FENCE_THICKNESS, FENCE_HEIGHT, 40);
             const leftFence = new THREE.Mesh(sideWallGeo, fenceMaterial);
             leftFence.position.set(-FENCE_X, wallY, 0);
+            leftFence.userData.type = 'vertical';
+            leftFence.userData.axis = 'x';
+            leftFence.userData.pos = -FENCE_X;
             scene.add(leftFence);
+            FENCES.push(leftFence);
+
             const rightFence = new THREE.Mesh(sideWallGeo, fenceMaterial);
             rightFence.position.set(FENCE_X, wallY, 0);
+            rightFence.userData.type = 'vertical';
+            rightFence.userData.axis = 'x';
+            rightFence.userData.pos = FENCE_X;
             scene.add(rightFence);
+            FENCES.push(rightFence);
 
+            // Base Walls
             const baseWallGeo = new THREE.BoxGeometry(30.1 + FENCE_THICKNESS, FENCE_HEIGHT, FENCE_THICKNESS); 
             const backFence = new THREE.Mesh(baseWallGeo, fenceMaterial);
             backFence.position.set(0, wallY, -FENCE_Z);
+            backFence.userData.type = 'vertical';
+            backFence.userData.axis = 'z';
+            backFence.userData.pos = -FENCE_Z;
             scene.add(backFence);
+            FENCES.push(backFence);
             
             const frontFence = new THREE.Mesh(baseWallGeo, fenceMaterial); 
             frontFence.position.set(0, wallY, FENCE_Z);
+            frontFence.userData.type = 'vertical';
+            frontFence.userData.axis = 'z';
+            frontFence.userData.pos = FENCE_Z;
             scene.add(frontFence);
+            FENCES.push(frontFence);
         }
 
         function createCourt() {
@@ -257,10 +282,12 @@
 
             createFences(); 
 
-            // Court Lines (same as before)
+            // Court Lines (Simplified for brevity, same as original logic)
             const LINE_WIDTH = 0.1;
             const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
             const lineY = -BALL_RADIUS + 0.005;
+
+            // ... (All line creation code from the original) ...
 
             const PERIMETER_X = 14.95;
             const PERIMETER_Z = 19.95;
@@ -366,8 +393,10 @@
             hoop.userData.BACKBOARD_Y_MIN = RIM_Y_POS - 0.1;
             hoop.userData.BACKBOARD_Y_MAX = RIM_Y_POS + BACKBOARD_HEIGHT - 0.1;
             hoop.userData.BACKBOARD_Z_POS = RIM_Z_POS - RIM_THICKNESS_VISUAL - BACKBOARD_THICKNESS / 2;
+            hoop.userData.backboardMesh = backboard;
 
-            // Rim
+
+            // Rim (Visual)
             const rimGeometry = new THREE.TorusGeometry(RIM_RADIUS, RIM_THICKNESS_VISUAL / 2, 16, 50);
             const rimMaterial = new THREE.MeshLambertMaterial({ color: 0xcc0000 });
             const rim = new THREE.Mesh(rimGeometry, rimMaterial);
@@ -405,8 +434,8 @@
 
         function createBall() {
             const ballGeometry = new THREE.SphereGeometry(BALL_RADIUS, 32, 32);
-            // Added simple seams texture mapping for spin visualization
-            const ballTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/crate.gif'); 
+            // Loaded a simple texture to help visualize spin
+            const ballTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/uv_grid_opengl.jpg'); 
             const ballMaterial = new THREE.MeshPhongMaterial({
                 color: 0xff8c00, specular: 0x222222, shininess: 30, map: ballTexture
             });
@@ -645,6 +674,7 @@
             const VELOCITY_SCALE = Math.min(1.8, power); 
             const distZ = Math.max(1, player.position.z - RIM_Z_POS); 
             
+            // Estimate base velocity needed to reach rim height and distance
             const base_vz = distZ * 0.85; 
             const base_vy = 13 + distZ * 0.5; 
             
@@ -658,8 +688,10 @@
             if (power < idealPower - 0.3 || power > idealPower + 0.3) {
                 const errorFactor = Math.abs(power - idealPower) * 2; 
                 dx = (Math.random() - 0.5) * 1.5 * errorFactor; 
+                updateMessage("Off Target!");
             } else {
                 dx = (Math.random() - 0.5) * 0.2; 
+                updateMessage("Good Release!");
             }
 
             ballVelocity.set(dx, vy, -vz);
@@ -669,11 +701,75 @@
             ballAngularVelocity.set(spinX, 0, 0);
         }
 
+        /**
+         * Updates the player's pose based on game state (Charging, Jumpshot, Layup, Idle).
+         */
+        function updatePlayerAnimations() {
+            const RIGHT_ARM = player.userData.rightArmGroup;
+            const LEFT_ARM = player.userData.leftArmGroup;
+            const LEG_GROUPS = player.userData.legGroups;
+            const MAX_JUMP_Y = GROUND_Y + JUMPSHOT_HEIGHT;
+            
+            // Simple Animation for Movement
+            const isMoving = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s;
+            const walkCycle = isMoving && !isCharging ? Math.sin(gameClock * 15) : 0;
+            
+            LEG_GROUPS[0].rotation.x = walkCycle * 0.3;
+            LEG_GROUPS[1].rotation.x = -walkCycle * 0.3;
+            
+
+            if (isCharging) {
+                // Charging/Crouch
+                const chargeProgress = Math.min(1, (performance.now() - chargeStartTime) / (MAX_CHARGE_TIME * 1000));
+                
+                // Crouch the player a little
+                player.position.y = GROUND_Y - 0.1 * chargeProgress;
+
+                // Bring arms up to chest
+                const armAngle = Math.PI / 2 + Math.PI / 4 * chargeProgress;
+                RIGHT_ARM.rotation.x = armAngle;
+                LEFT_ARM.rotation.x = armAngle;
+
+            } else if (isJumping) {
+                // Jumpshot / Layup Jump
+                
+                // Animate jump height (separate from verticalVelocity)
+                const jumpProgress = (player.position.y - GROUND_Y) / (JUMPSHOT_HEIGHT);
+                
+                // Shooting motion starts after apex (or immediately for a layup)
+                if (player.userData.isLayup) {
+                    RIGHT_ARM.rotation.x = Math.PI * 1.5; // Layup extension
+                    LEFT_ARM.rotation.x = Math.PI;
+                } else {
+                    const releaseProgress = Math.min(1, jumpProgress * 2);
+                    RIGHT_ARM.rotation.x = Math.PI * 0.7 + Math.PI * 0.6 * releaseProgress;
+                    LEFT_ARM.rotation.x = Math.PI * 0.7 + Math.PI * 0.6 * releaseProgress;
+                }
+                
+            } else if (isShooting && isGuaranteedShot) {
+                // Follow the smooth shot animation path
+                const t = shotProgress / shotDuration;
+                
+                // Arms remain extended after release
+                RIGHT_ARM.rotation.x = Math.PI * 1.3;
+                LEFT_ARM.rotation.x = Math.PI * 1.3;
+                
+            } else {
+                // Idle / Moving / Holding
+                player.position.y = GROUND_Y;
+                
+                // Dribbling arms
+                const dribbleY = Math.abs(Math.sin(gameClock * DRIBBLE_RATE * 0.5)) * 0.4;
+                RIGHT_ARM.rotation.x = Math.PI * 0.6 + dribbleY;
+                LEFT_ARM.rotation.x = Math.PI * 0.6 + dribbleY;
+            }
+        }
+        
         function updateMovementAndDribble() {
             gameClock += TIME_STEP;
 
             if (isShooting && !isGuaranteedShot) {
-                // Skip player movement when ball is in the air (unless it's a guaranteed shot for animation sync)
+                // Player is locked after physics shot is released
             } else {
                 // Movement
                 const dirX = (keysPressed.d ? 1 : 0) - (keysPressed.a ? 1 : 0);
@@ -710,7 +806,35 @@
             // --- Simplified Dribble Logic / Holding Ball Position ---
             const isMoving = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s;
             
-            if (isCharging || isJumping || isShooting) {
+            if (isShooting) {
+                 // Ball is now physics-controlled (or animated if guaranteed)
+                 // This block handles the perfect shot animation trajectory
+                if (isGuaranteedShot) {
+                    shotProgress += TIME_STEP;
+                    const t = Math.min(1, shotProgress / shotDuration);
+                    
+                    // Bezier Curve for a smooth arc
+                    const targetPos = shotTargetPos;
+                    const midPoint = shotStartPos.clone().lerp(targetPos, 0.5);
+                    // Add arc height
+                    midPoint.y = Math.max(shotStartPos.y, targetPos.y) + 4; 
+                    
+                    const p0 = shotStartPos;
+                    const p1 = midPoint;
+                    const p2 = targetPos;
+                    
+                    // Quadratic Bezier Interpolation
+                    ball.position.x = (1-t) * (1-t) * p0.x + 2 * (1-t) * t * p1.x + t * t * p2.x;
+                    ball.position.y = (1-t) * (1-t) * p0.y + 2 * (1-t) * t * p1.y + t * t * p2.y;
+                    ball.position.z = (1-t) * (1-t) * p0.z + 2 * (1-t) * t * p1.z + t * t * p2.z;
+                    
+                    // Check for scoring (end of animation)
+                    if (t >= 1) {
+                        updateScore(player.position.distanceTo(RIM_CENTER) > 6.75 ? 3 : 2);
+                        resetBall();
+                    }
+                }
+            } else if (isCharging || isJumping) {
                 // Lock ball to the actual right hand position
                 const hand = player.userData.rightHand;
                 const handWorldPosition = new THREE.Vector3();
@@ -734,9 +858,9 @@
                     player.position.z - 1 
                 );
             }
+            
             // If the ball is locked to the player, keep its rotation static
             if(!isShooting) ball.rotation.set(0, 0, 0); 
-
 
             // --- Camera Tracking (LERP) ---
             if (currentCameraView === 'player') { 
@@ -750,384 +874,301 @@
                 camera.position.y += (targetY - camera.position.y) * CAMERA_SMOOTHNESS;
 
                 camera.lookAt(player.position.x, player.position.y + 1.5, player.position.z);
+            } else {
+                 // Goal View (fixed behind the backboard)
+                const targetX = 0;
+                const targetY = RIM_Y_POS + 1.5;
+                const targetZ = RIM_Z_POS - 6; 
+                
+                const CAMERA_SMOOTHNESS = 0.1;
+
+                camera.position.x += (targetX - camera.position.x) * CAMERA_SMOOTHNESS;
+                camera.position.y += (targetY - camera.position.y) * CAMERA_SMOOTHNESS;
+                camera.position.z += (targetZ - camera.position.z) * CAMERA_SMOOTHNESS;
+                
+                camera.lookAt(RIM_CENTER);
             }
+            
+            // Update UI elements based on state
+            updatePlayerAnimations();
+            updateOpponentAI();
         }
 
         /**
-         * Updates the player's pose based on game state (Charging, Jumpshot, Layup, Idle).
+         * The core physics simulation for the launched ball.
          */
-        function updatePlayerAnimation() {
-            if (!player) return; 
+        function updatePhysics() {
+            if (!isShooting || isGuaranteedShot) return;
 
-            const rArm = player.userData.rightArmGroup;
-            const lArm = player.userData.leftArmGroup; 
-            
-            const JUMP_MAX_Y = GROUND_Y + JUMPSHOT_HEIGHT;
-            const jumpRatio = isJumping ? (player.position.y - GROUND_Y) / JUMPSHOT_HEIGHT : 0;
-            const jumpProgress = Math.min(1, jumpRatio * 2);
+            // 1. Apply Gravity and Update Position (Euler Integration)
+            ballVelocity.add(GRAVITY.clone().multiplyScalar(TIME_STEP));
+            ball.position.add(ballVelocity.clone().multiplyScalar(TIME_STEP));
 
-            if (isCharging) {
-                // --- Charging Pose (Crouch and Pullback) ---
-                const chargeRatio = Math.min(1, (performance.now() - chargeStartTime) / (MAX_CHARGE_TIME * 1000));
-                
-                // Slight crouch / Knee bend
-                const crouchY = GROUND_Y - 0.2 * chargeRatio;
-                player.position.y += (crouchY - player.position.y) * 0.2; 
-                
-                // Arm pullback
-                rArm.rotation.z += (Math.PI / 2 - rArm.rotation.z) * 0.1; 
-                rArm.rotation.y += (-Math.PI / 8 - rArm.rotation.y) * 0.1; 
-                lArm.rotation.z += (-Math.PI / 4 - lArm.rotation.z) * 0.1; 
+            // 2. Apply Rotation (Spin)
+            const rotationAxisX = new THREE.Vector3(1, 0, 0);
+            const rotationAxisY = new THREE.Vector3(0, 1, 0);
+            const rotationAxisZ = new THREE.Vector3(0, 0, 1);
 
-            } else if (isShooting) {
-                // --- Shooting/Follow-Through Pose ---
+            // Rotate based on angular velocity (in radians per second)
+            ball.rotateOnWorldAxis(rotationAxisX, ballAngularVelocity.x * TIME_STEP);
+            ball.rotateOnWorldAxis(rotationAxisY, ballAngularVelocity.y * TIME_STEP);
+            ball.rotateOnWorldAxis(rotationAxisZ, ballAngularVelocity.z * TIME_STEP);
 
-                if (player.userData.isLayup) {
-                    // Layup animation: high reach
-                    rArm.rotation.z += (Math.PI * 1.1 - rArm.rotation.z) * 0.2; 
-                    rArm.rotation.y += (0 - rArm.rotation.y) * 0.2;
-                    lArm.rotation.z += (-Math.PI / 2 - lArm.rotation.z) * 0.2; 
-                } else {
-                    // Jumpshot animation: shooting motion and follow through
-                    if (jumpProgress < 0.5) { // Arm goes up during jump ascent
-                        rArm.rotation.z += (Math.PI * 0.9 * jumpProgress * 2 - rArm.rotation.z) * 0.2; 
-                    } else { // Follow through on descent
-                         rArm.rotation.z += (Math.PI * 0.9 - rArm.rotation.z) * 0.2; 
-                    }
-                    rArm.rotation.y += (0 - rArm.rotation.y) * 0.2;
-                    lArm.rotation.z += (-Math.PI / 4 - lArm.rotation.z) * 0.2; 
-                }
-                
-                // Jumpshot: Player jump animation
-                if (isJumping && !player.userData.isLayup) {
-                    const currentHeight = GROUND_Y + JUMPSHOT_HEIGHT * Math.sin(jumpProgress * Math.PI / 2); // Sinusoidal arc
-                    player.position.y += (currentHeight - player.position.y) * 0.2;
-                }
+            // 3. Collision Checks
 
-            } else {
-                // --- Dribbling/Idle Pose ---
-                
-                // Player vertical position snap back to ground
-                player.position.y += (GROUND_Y - player.position.y) * 0.1;
-                
-                // Arm reset
-                rArm.rotation.z += (Math.PI / 4 - rArm.rotation.z) * 0.1; 
-                rArm.rotation.y += (0 - rArm.rotation.y) * 0.1;
-                lArm.rotation.z += (-Math.PI / 4 - lArm.rotation.z) * 0.1; 
-
-                // Walking/Standing animation
-                const isMoving = keysPressed.w || keysPressed.a || keysPressed.d || keysPressed.s;
-                const legBob = isMoving ? Math.sin(gameClock * 15) * 0.1 : 0;
-                player.userData.legGroups[0].position.z = legBob;
-                player.userData.legGroups[1].position.z = -legBob;
-            }
-        }
-        
-        // --- Game Loop Physics/Rendering ---
-
-        function updateBallPhysics() {
-            if (!isShooting) return;
-
-            // 1. Guaranteed Shot (Animation path)
-            if (isGuaranteedShot) {
-                shotProgress += TIME_STEP / shotDuration;
-                if (shotProgress >= 1) {
-                    ball.position.copy(shotTargetPos);
-                    updateScore(player.userData.isLayup ? 2 : 3);
-                    resetBall();
-                    return;
-                }
-
-                const arcHeight = 5; 
-                const p = shotProgress;
-                
-                const midPoint = shotStartPos.clone().lerp(shotTargetPos, 0.5);
-                midPoint.y += arcHeight;
-                
-                // Quadratic Bezier interpolation
-                const p1 = (1 - p) * (1 - p);
-                const p2 = 2 * (1 - p) * p;
-                const p3 = p * p;
-                
-                ball.position.x = p1 * shotStartPos.x + p2 * midPoint.x + p3 * shotTargetPos.x;
-                ball.position.y = p1 * shotStartPos.y + p2 * midPoint.y + p3 * shotTargetPos.y;
-                ball.position.z = p1 * shotStartPos.z + p2 * midPoint.z + p3 * shotTargetPos.z;
-
-            } else {
-                // 2. Standard Physics simulation
-                ballVelocity.addScaledVector(GRAVITY, TIME_STEP);
-                ball.position.addScaledVector(ballVelocity, TIME_STEP);
-            }
-            
-            // 3. Apply Ball Spin (Rotation)
-            ball.rotation.x += ballAngularVelocity.x * TIME_STEP;
-            ball.rotation.y += ballAngularVelocity.y * TIME_STEP;
-            ball.rotation.z += ballAngularVelocity.z * TIME_STEP;
-
-            // --- Collisions and Scoring ---
-            const ballX = ball.position.x;
-            const ballY = ball.position.y;
-            const ballZ = ball.position.z;
-
-            // 4. Ground Collision
-            if (ballY < GROUND_Y + BALL_RADIUS) {
+            // --- A. Ground Collision ---
+            if (ball.position.y <= GROUND_Y + BALL_RADIUS) {
                 ball.position.y = GROUND_Y + BALL_RADIUS;
-                ballVelocity.y *= -BOUNCE_DAMPING; 
-                ballAngularVelocity.multiplyScalar(0.8); // Damping spin on ground hit
+                ballVelocity.y = -ballVelocity.y * BOUNCE_DAMPING; // Reverse and dampen
+                ballVelocity.multiplyScalar(0.9); // Friction
+                ballAngularVelocity.multiplyScalar(0.7); // Damping on spin
                 
-                if (Math.abs(ballVelocity.y) < 1.0) {
-                    ballVelocity.y = 0; 
-                    if (ballZ > RIM_Z_POS + RIM_RADIUS + BALL_RADIUS * 2) { 
-                        // Only reset if it bounces past the rim towards the player/front
-                        resetBall();
+                // If velocity is very low, stop movement
+                if (ballVelocity.length() < 1) {
+                    ballVelocity.set(0, 0, 0);
+                    ballAngularVelocity.set(0, 0, 0);
+                    resetBall();
+                }
+            }
+            
+            // --- B. Fence Collisions ---
+            FENCES.forEach(fence => {
+                const fPos = fence.userData.pos;
+                const fAxis = fence.userData.axis;
+
+                if (fAxis === 'x') {
+                    if (Math.abs(ball.position.x - fPos) <= BALL_RADIUS) {
+                        ball.position.x = fPos + (ball.position.x > fPos ? BALL_RADIUS : -BALL_RADIUS);
+                        ballVelocity.x = -ballVelocity.x * BOUNCE_DAMPING;
+                        ballVelocity.multiplyScalar(0.9);
+                    }
+                } else if (fAxis === 'z') {
+                    if (Math.abs(ball.position.z - fPos) <= BALL_RADIUS) {
+                        ball.position.z = fPos + (ball.position.z > fPos ? BALL_RADIUS : -BALL_RADIUS);
+                        ballVelocity.z = -ballVelocity.z * BOUNCE_DAMPING;
+                        ballVelocity.multiplyScalar(0.9);
                     }
                 }
-            }
+            });
 
-            // 5. Backboard Collision
-            const BB = hoop.userData;
-            if (ballZ < BB.BACKBOARD_Z_POS + BALL_RADIUS && ballZ > BB.BACKBOARD_Z_POS - BALL_RADIUS &&
-                ballX < BB.BACKBOARD_X_HALF + BALL_RADIUS && ballX > -BB.BACKBOARD_X_HALF - BALL_RADIUS &&
-                ballY < BB.BACKBOARD_Y_MAX + BALL_RADIUS && ballY > BB.BACKBOARD_Y_MIN - BALL_RADIUS) {
 
-                ball.position.z = BB.BACKBOARD_Z_POS + BALL_RADIUS; 
-                ballVelocity.z *= -RIM_DAMPING;
-                ballAngularVelocity.x *= -0.5; // Reverse and dampen backspin
-                updateMessage("Clank! Off the backboard.");
-            }
+            // --- C. Backboard Collision ---
+            const backboard = hoop.userData.backboardMesh;
+            const BACKBOARD_Z = hoop.userData.BACKBOARD_Z_POS;
 
-            // 6. Rim Collision (Cylinder/Torus to Sphere)
-            const horizontalDistSq = (ballX * ballX) + ((ballZ - RIM_Z_POS) * (ballZ - RIM_Z_POS));
-            const ballCenterHorizDist = Math.sqrt(horizontalDistSq);
-            
-            const isNearRim = ballCenterHorizDist < RIM_RADIUS + BALL_RADIUS && ballCenterHorizDist > RIM_RADIUS - BALL_RADIUS;
-            const isRimHeight = ballY < RIM_Y_POS + BALL_RADIUS && ballY > RIM_Y_POS - BALL_RADIUS;
-
-            if (isNearRim && isRimHeight) {
-                ball.userData.inRimArea = true;
-                if (!ball.userData.scored) {
-                    // Calculate the collision normal pointing radially outward from the center of the rim
-                    const normal = new THREE.Vector2(ballX, ballZ - RIM_Z_POS).normalize();
-                    const incomingVelocity2D = new THREE.Vector2(ballVelocity.x, ballVelocity.z);
+            if (ball.position.z <= BACKBOARD_Z + BALL_RADIUS && ballVelocity.z < 0) {
+                // Check if ball hits within backboard bounds
+                if (Math.abs(ball.position.x) < hoop.userData.BACKBOARD_X_HALF + BALL_RADIUS &&
+                    ball.position.y > hoop.userData.BACKBOARD_Y_MIN &&
+                    ball.position.y < hoop.userData.BACKBOARD_Y_MAX + BALL_RADIUS) {
                     
-                    // Reflection Vector (R = V - 2 * (V dot N) * N)
-                    const dotProduct = incomingVelocity2D.dot(normal);
-                    const reflection = incomingVelocity2D.sub(normal.multiplyScalar(2 * dotProduct));
-                    
-                    // Apply reflected velocity with damping
-                    ballVelocity.x = reflection.x * RIM_DAMPING;
-                    ballVelocity.z = reflection.y * RIM_DAMPING;
-                    ballVelocity.y *= RIM_DAMPING;
-                    
-                    // Apply spin damping
-                    ballAngularVelocity.multiplyScalar(0.8);
-                    
-                    updateMessage("Tough shot! Off the rim.");
-                    
-                    // Simple snap correction to prevent sinking into the rim
-                    const targetDist = RIM_RADIUS + BALL_RADIUS + 0.05;
-                    const scaleFactor = targetDist / ballCenterHorizDist;
-                    ball.position.x *= scaleFactor;
-                    ball.position.z = RIM_Z_POS + (ball.position.z - RIM_Z_POS) * scaleFactor;
+                    // Collision detected
+                    ball.position.z = BACKBOARD_Z + BALL_RADIUS; // Correct position
+                    ballVelocity.z = -ballVelocity.z * RIM_DAMPING; // Reverse and dampen
+                    ballVelocity.y *= 0.95; // Dampen vertical velocity slightly
+                    updateMessage("Hit the backboard!");
                 }
             }
 
-            // 7. Scoring Check (Ball passes through the net)
-            if (ball.userData.inRimArea && ballY < RIM_Y_POS - BALL_RADIUS * 2) {
-                if (!ball.userData.scored) {
-                    const threePtRadius = 6.75;
-                    const distToHoop = Math.abs(player.position.z - RIM_Z_POS);
-                    const points = distToHoop > threePtRadius ? 3 : 2;
-                    updateScore(points);
-                    ball.userData.scored = true; 
+
+            // --- D. Rim Collision (Simplified Torus/Sphere Check) ---
+            const rimDist = ball.position.clone().setY(RIM_Y_POS).distanceTo(RIM_CENTER.clone().setY(RIM_Y_POS));
+
+            if (Math.abs(ball.position.y - RIM_Y_POS) < BALL_RADIUS + RIM_THICKNESS / 2) {
+                if (Math.abs(rimDist - RIM_RADIUS) < BALL_RADIUS + RIM_THICKNESS / 2) {
+                    // Collision with the rim torus
+                    
+                    // Calculate collision normal (vector from rim edge center to ball center)
+                    const dir = ball.position.clone().setY(RIM_Y_POS).sub(RIM_CENTER.clone().setY(RIM_Y_POS)).normalize();
+                    const pointOnRim = RIM_CENTER.clone().setY(RIM_Y_POS).add(dir.clone().multiplyScalar(RIM_RADIUS));
+                    const normal = ball.position.clone().sub(pointOnRim).normalize();
+
+                    // Reflect velocity
+                    const velMagnitude = ballVelocity.dot(normal);
+                    ballVelocity.sub(normal.clone().multiplyScalar((1 + RIM_DAMPING) * velMagnitude));
+                    ballVelocity.multiplyScalar(0.9); // Extra friction/damping
+
+                    // Correct position to prevent sinking
+                    ball.position.add(normal.clone().multiplyScalar(0.01)); 
+                    updateMessage("DINK!");
                 }
             }
             
-            // 8. Out of bounds/End of shot
-            if (ball.userData.scored && ballY < GROUND_Y + BALL_RADIUS) {
-                resetBall();
-            } else if (ballZ < RIM_Z_POS - 5 || ballZ > FENCE_Z || Math.abs(ballX) > FENCE_X) {
-                // If it goes too far back or hits the outside fence
-                if (ball.position.y < RIM_Y_POS) {
-                     resetBall();
-                     if (!ball.userData.scored) updateMessage("Missed entirely! New possession.");
+            // --- E. Net/Scoring Check ---
+            // If the ball is above the rim and moving downwards, it's considered for scoring
+            if (ball.position.y > RIM_Y_POS && ballVelocity.y < 0 && !ball.userData.scored) {
+                const horizDist = ball.position.clone().setY(RIM_Y_POS).distanceTo(RIM_CENTER.clone().setY(RIM_Y_POS));
+                
+                if (horizDist < RIM_RADIUS - BALL_RADIUS * 0.5) { // Needs to pass cleanly inside the radius
+                    ball.userData.inRimArea = true;
                 }
+            }
+            
+            // Check if ball passed through the rim plane
+            if (ball.position.y <= RIM_Y_POS && ball.userData.inRimArea && !ball.userData.scored) {
+                ball.userData.scored = true;
+                // Determine 2 or 3 points
+                const points = player.position.distanceTo(RIM_CENTER) > 6.75 ? 3 : 2; 
+                updateScore(points);
             }
         }
         
-        // --- AI Movement Update (same as before) ---
-        function updateOpponent() {
-            const targetZ = player.position.distanceTo(opponent.position) < AI_PLAYER_FOLLOW_DIST ? player.position.z : AI_DEFENSE_Z;
-            const targetX = player.position.distanceTo(opponent.position) < AI_PLAYER_FOLLOW_DIST ? player.position.x * 0.5 : 0;
-            
-            if (Math.abs(opponent.position.z - targetZ) > 0.1) {
-                opponent.position.z += Math.sign(targetZ - opponent.position.z) * AI_SPEED;
+        /**
+         * Simple AI to track the player.
+         */
+        function updateOpponentAI() {
+            const playerPos = player.position;
+            const oppPos = opponent.position;
+
+            // Only defend if the player is in range
+            const distToPlayer = oppPos.distanceTo(playerPos);
+            if (distToPlayer > AI_PLAYER_FOLLOW_DIST) {
+                // Return to default position
+                const defaultPos = new THREE.Vector3(0, GROUND_Y, AI_DEFENSE_Z);
+                oppPos.lerp(defaultPos, 0.02);
+                return;
             }
-            if (Math.abs(opponent.position.x - targetX) > 0.1) {
-                opponent.position.x += Math.sign(targetX - opponent.position.x) * AI_SPEED;
-            }
+
+            // Move laterally to cut off the player
+            const targetX = playerPos.x * 0.8; // Stick near the center
+            const targetZ = Math.min(AI_DEFENSE_Z, playerPos.z - 3); // Stay between player and hoop
+
+            const targetPos = new THREE.Vector3(targetX, GROUND_Y, targetZ);
             
-            opponent.position.x = Math.max(-FENCE_X + 1, Math.min(FENCE_X - 1, opponent.position.x));
-            opponent.position.z = Math.max(-FENCE_Z + 1, Math.min(FENCE_Z - 1, opponent.position.z));
-            
-            opponent.lookAt(player.position.x, opponent.position.y + 1, player.position.z);
+            // Slow down when close to target
+            const speed = AI_SPEED * (isShooting ? 0.5 : 1.0); // Less aggressive when ball is shot
+            oppPos.lerp(targetPos, speed * TIME_STEP * 10);
+
+            // Face the player
+            opponent.lookAt(playerPos.x, playerPos.y, playerPos.z);
+            opponent.rotation.x = 0; // Prevent looking up/down
+            opponent.rotation.z = 0;
         }
 
+        /**
+         * The main game loop.
+         */
         function animate() {
             requestAnimationFrame(animate);
 
-            updateShotMeter();
             updateMovementAndDribble();
-            updatePlayerAnimation();
-            updateBallPhysics();
-            updateOpponent();
-
+            updatePhysics();
+            
             renderer.render(scene, camera);
         }
-        
-        // --- Shot Meter Logic (same as before) ---
-        function updateShotMeter() {
-            if (isCharging) {
-                const elapsed = (performance.now() - chargeStartTime) / 1000;
-                shotProgress = (elapsed / MAX_CHARGE_TIME); 
-                
-                const meterContainer = document.getElementById('shot-meter-container');
-                const shotBar = document.getElementById('shot-bar');
-                
-                meterContainer.style.display = 'block';
-                
-                const visualTime = elapsed * 2; 
-                const visualProgress = (Math.sin(visualTime * Math.PI) + 1) / 2 * 100;
-                shotBar.style.width = `${visualProgress}%`;
-                
-                if (elapsed >= MAX_CHARGE_TIME * 0.45 && elapsed <= MAX_CHARGE_TIME * 0.55) {
-                    shotBar.style.background = 'linear-gradient(90deg, #ff8c00, #00ffaa, #ff8c00)';
-                } else {
-                    shotBar.style.background = 'linear-gradient(90deg, rgba(255, 0, 0, 0.9), rgba(255, 255, 0, 0.9) 40%, rgba(0, 255, 0, 0.9) 50%, rgba(255, 255, 0, 0.9) 60%, rgba(255, 0, 0, 0.9) 100%)';
-                }
-                
-                if (elapsed >= MAX_CHARGE_TIME * 2) {
-                    releaseShot();
-                }
-            } else {
-                document.getElementById('shot-meter-container').style.display = 'none';
-            }
-        }
 
-        // --- Camera Toggle Feature (same as before) ---
-        function toggleCameraView() {
-            if (currentCameraView === 'player') {
-                camera.position.set(0, RIM_Y_POS + 1, RIM_Z_POS + 10); 
-                camera.lookAt(0, RIM_Y_POS, RIM_Z_POS);
-                currentCameraView = 'goal';
-                updateMessage("Goal View Activated! Press C again to switch back.");
-            } else {
-                currentCameraView = 'player';
-                updateMessage("Player View Activated (WASD control).");
-            }
-        }
+        // --- Event Handlers ---
 
-        // --- Shot Control Functions (same as before) ---
-        function startCharging() {
-            if (isShooting || isCharging || player.position.y !== GROUND_Y) return;
-            
-            isCharging = true;
-            chargeStartTime = performance.now();
-            
-            const isLayup = isInThePaint();
-            player.userData.isLayup = isLayup;
-            
-            if (isLayup) {
-                isGuaranteedShot = false; // Layups use real physics now for blocks
-                
-                player.userData.verticalVelocity = JUMP_VELOCITY * 0.5; 
-                isJumping = true;
-                
-                releaseShot(); 
-                
-            } else {
-                updateMessage("Charging Jumpshot...");
-            }
-        }
-        
-        function releaseShot() {
-            if (!isCharging && !player.userData.isLayup) return;
-
-            isCharging = false;
-            document.getElementById('shot-meter-container').style.display = 'none';
-            
-            // Layup Release
-            if (player.userData.isLayup) {
-                launchLayup();
-                return;
-            }
-            
-            // Jumpshot Release
-            const chargeTime = (performance.now() - chargeStartTime) / 1000;
-            const power = Math.min(2.0, chargeTime / (MAX_CHARGE_TIME * 0.5)); 
-
-            if (chargeTime >= MAX_CHARGE_TIME * 0.45 && chargeTime <= MAX_CHARGE_TIME * 0.55) {
-                isGuaranteedShot = true; 
-                updateMessage("PERFECT RELEASE! SWISH!");
-            } else if (chargeTime < MAX_CHARGE_TIME * 0.25 || chargeTime > MAX_CHARGE_TIME * 0.75) {
-                updateMessage("Bad Release: Airball or Brick!");
-            } else {
-                updateMessage("Fair Release: Hope for the best...");
-            }
-            
-            player.userData.verticalVelocity = JUMP_VELOCITY * 0.8; 
-            isJumping = true;
-            
-            launchJumpshot(power);
-        }
-
-        // --- Event Listeners (same as before) ---
         function onKeyDown(event) {
-            switch (event.key) {
+            switch (event.key.toLowerCase()) {
                 case 'w': keysPressed.w = true; break;
                 case 'a': keysPressed.a = true; break;
                 case 's': keysPressed.s = true; break;
                 case 'd': keysPressed.d = true; break;
                 case 'e': 
-                    if (!keysPressed.e && !isShooting && player.position.y === GROUND_Y) {
-                        keysPressed.e = true;
-                        startCharging();
+                    if (!isShooting && !isCharging) {
+                        isCharging = true;
+                        chargeStartTime = performance.now();
+                        document.getElementById('shot-meter-container').style.display = 'block';
+                        isJumping = true; // Start the jump/crouch animation
+                        player.userData.verticalVelocity = JUMP_VELOCITY * 0.5; // Half speed for crouch
                     }
+                    keysPressed.e = true; 
                     break;
                 case 'c':
-                    toggleCameraView();
+                    const now = performance.now();
+                    if (now - lastCKeyPressTime > 200) { // Debounce
+                        currentCameraView = currentCameraView === 'player' ? 'goal' : 'player';
+                        lastCKeyPressTime = now;
+                    }
+                    keysPressed.c = true;
                     break;
             }
         }
 
         function onKeyUp(event) {
-            switch (event.key) {
+            switch (event.key.toLowerCase()) {
                 case 'w': keysPressed.w = false; break;
                 case 'a': keysPressed.a = false; break;
                 case 's': keysPressed.s = false; break;
                 case 'd': keysPressed.d = false; break;
-                case 'e': 
-                    if (isCharging && !player.userData.isLayup) { 
-                        releaseShot();
+                case 'e':
+                    if (isCharging) {
+                        isCharging = false;
+                        document.getElementById('shot-meter-container').style.display = 'none';
+                        const chargeTime = (performance.now() - chargeStartTime) / 1000;
+                        let power = Math.min(1.8, chargeTime / (MAX_CHARGE_TIME * 0.7)); // Max power slightly above 1.0
+
+                        if (isInThePaint()) {
+                            player.userData.isLayup = true;
+                            // Trigger full jump on key up for a layup
+                            player.userData.verticalVelocity = JUMP_VELOCITY * 0.8;
+                            launchLayup();
+                        } else {
+                            // Check for perfect release (green zone is 45% to 55% of MAX_CHARGE_TIME)
+                            const perfectReleaseMin = MAX_CHARGE_TIME * 0.45;
+                            const perfectReleaseMax = MAX_CHARGE_TIME * 0.55;
+
+                            if (chargeTime >= perfectReleaseMin && chargeTime <= perfectReleaseMax) {
+                                isGuaranteedShot = true;
+                                launchJumpshot(1.0); // Launch animation
+                                updateMessage("PERFECT RELEASE! SWISH!");
+                            } else {
+                                launchJumpshot(power);
+                            }
+                        }
                     }
-                    keysPressed.e = false; 
+                    keysPressed.e = false;
                     break;
+                case 'c': keysPressed.c = false; break;
+            }
+        }
+        
+        /**
+         * Updates the shot meter's visual state while charging.
+         */
+        function updateShotMeter() {
+             if (isCharging) {
+                const chargeTime = (performance.now() - chargeStartTime) / 1000;
+                const progress = Math.min(1, chargeTime / MAX_CHARGE_TIME);
+                
+                const shotBar = document.getElementById('shot-bar');
+                const shotTarget = document.getElementById('shot-target');
+
+                shotBar.style.width = `${progress * 100}%`;
+                
+                // Adjust target width/position based on difficulty (e.g., further shots narrow the target)
+                const distance = player.position.distanceTo(RIM_CENTER);
+                const targetBaseWidth = 10;
+                const targetWidth = Math.max(4, targetBaseWidth - distance * 0.5); // Narrows target with distance
+                const targetLeft = 50 - targetWidth / 2;
+
+                shotTarget.style.width = `${targetWidth}%`;
+                shotTarget.style.left = `${targetLeft}%`;
+                
+                // Flash meter if overcharged
+                if (progress >= 1) {
+                    shotBar.style.background = 'red';
+                }
             }
         }
 
-        // --- Initialization (same as before) ---
+        // --- Initialization ---
+
         function init() {
             const container = document.getElementById('game-container');
             const width = container.clientWidth;
             const height = container.clientHeight;
 
+            // Scene setup
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x334466); 
+            scene.background = new THREE.Color(0x3a3a5a);
 
-            camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 100);
-            camera.position.set(0, 5, 10);
-            camera.lookAt(0, 1.5, 0);
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+            camera.position.set(0, 5, 10); 
 
+            // Renderer setup
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(width, height);
             renderer.shadowMap.enabled = true;
@@ -1135,11 +1176,11 @@
             container.appendChild(renderer.domElement);
 
             // Lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.5); 
             scene.add(ambientLight);
-            
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
-            directionalLight.position.set(5, 15, 10);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
+            directionalLight.position.set(10, 20, 10);
             directionalLight.castShadow = true;
             directionalLight.shadow.mapSize.width = 2048;
             directionalLight.shadow.mapSize.height = 2048;
@@ -1150,24 +1191,28 @@
             directionalLight.shadow.camera.top = 20;
             directionalLight.shadow.camera.bottom = -20;
             scene.add(directionalLight);
-
+            
+            // Game Objects
             createCourt();
             createHoop();
-            createPlayer();
             createBall();
+            createPlayer();
             createOpponent();
+            resetBall(); // Position ball at start
 
-            updateMovementAndDribble();
-
+            // Event Listeners
             window.addEventListener('resize', onWindowResize, false);
             document.addEventListener('keydown', onKeyDown, false);
             document.addEventListener('keyup', onKeyUp, false);
             
+            // Loop for non-physics UI updates
+            setInterval(updateShotMeter, 50);
+
+            // Start the game loop
             animate();
         }
 
         init();
-
     </script>
 </body>
 </html>
