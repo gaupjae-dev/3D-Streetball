@@ -1,67 +1,232 @@
-import random
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Underground Boxing: Clique Wars</title>
+    <style>
+        :root {
+            --bg: #1a1a1a;
+            --card: #2d2d2d;
+            --accent: #ff4757;
+            --text: #f1f2f6;
+        }
 
-class Clique:
-    def __init__(self, name):
-        self.name = name
-        self.power = 10
-        self.territory_count = 1
-        self.funds = 100
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
 
-    def __str__(self):
-        return f"{self.name} | Power: {self.power} | Territory: {self.territory_count} | Funds: ${self.funds}"
+        #game-container {
+            width: 900px;
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
 
-class Sector:
-    def __init__(self, name, difficulty):
-        self.name = name
-        self.difficulty = difficulty
-        self.owner = "Neutral"
+        /* Sidebar Stats */
+        .sidebar {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 5px solid var(--accent);
+        }
 
-def complete_mission(clique):
-    print(f"\n--- Mission Available: Training Camp ---")
-    success_chance = random.randint(1, 10)
-    
-    if success_chance > 3:
-        reward = 50
-        power_gain = 5
-        clique.funds += reward
-        clique.power += power_gain
-        print(f"Success! You gained ${reward} and {power_gain} power.")
-    else:
-        print("Mission failed. Your fighters need more rest.")
+        .stat-box {
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+        }
 
-def take_over_sector(clique, sector):
-    print(f"\n--- Attempting to take over {sector.name} ---")
-    if clique.power >= sector.difficulty:
-        sector.owner = clique.name
-        clique.territory_count += 1
-        clique.power -= 5  # Cost of expansion
-        print(f"Victory! {sector.name} is now under your control.")
-    else:
-        print(f"Defeat! {sector.name} was too strong. Increase your power first.")
+        .stat-val { font-weight: bold; color: var(--accent); }
 
-# --- Game Setup ---
-player_clique = Clique("The Iron Fists")
-map_sectors = [
-    Sector("The Docks", 12),
-    Sector("Downtown Gym", 25),
-    Sector("The Industrial Hub", 40)
-]
+        /* Map Area */
+        .map-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
 
-# --- Mini Game Loop ---
-while True:
-    print("\n" + "="*30)
-    print(player_clique)
-    print("1. Do Mission  2. Take Territory  3. Exit")
-    choice = input("Select an action: ")
+        .sector {
+            background: #3d3d3d;
+            aspect-ratio: 1/1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            transition: 0.3s;
+            cursor: pointer;
+            text-align: center;
+            padding: 10px;
+        }
 
-    if choice == "1":
-        complete_mission(player_clique)
-    elif choice == "2":
-        for i, s in enumerate(map_sectors):
-            status = "[OWNED]" if s.owner == player_clique.name else f"[Diff: {s.difficulty}]"
-            print(f"{i+1}. {s.name} {status}")
-        
-        target = int(input("Choose a sector: ")) - 1
-        take_over_sector(player_clique, map_sectors[target])
-    elif choice == "3":
-        break
+        .sector:hover { border-color: var(--accent); transform: scale(1.05); }
+        .owned { border-color: #2ed573; background: #1e3a29; }
+
+        /* Controls */
+        .controls {
+            grid-column: 1 / span 2;
+            background: var(--card);
+            padding: 20px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-around;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 1rem;
+            background: var(--accent);
+            border: none;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:disabled { background: #555; cursor: not-allowed; }
+
+        #log {
+            height: 100px;
+            overflow-y: auto;
+            background: #000;
+            padding: 10px;
+            font-family: monospace;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #00ff00;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>UNDERGROUND BOXING: CLIQUE WARS</h1>
+
+    <div id="game-container">
+        <div class="sidebar">
+            <h3>Your Clique</h3>
+            <div class="stat-box">Cash: <span id="cash" class="stat-val">$100</span></div>
+            <div class="stat-box">Power: <span id="power" class="stat-val">10</span></div>
+            <div class="stat-box">Fighters: <span id="fighters" class="stat-val">3</span></div>
+            <hr>
+            <div id="log">Welcome to the pits. Build your clique.</div>
+        </div>
+
+        <div class="map-grid" id="map">
+            </div>
+
+        <div class="controls">
+            <button onclick="doMission()">Run Street Fight (Earn Cash/Power)</button>
+            <button onclick="recruitFighter()">Recruit Fighter ($80)</button>
+        </div>
+    </div>
+
+    <script>
+        // Game State
+        let stats = {
+            cash: 100,
+            power: 10,
+            fighters: 3,
+            territory: 0
+        };
+
+        const sectors = [
+            { id: 0, name: "The Bus Depot", cost: 15, income: 5, owned: false },
+            { id: 1, name: "The Docks", cost: 30, income: 15, owned: false },
+            { id: 2, name: "Iron Gym", cost: 50, income: 25, owned: false },
+            { id: 3, name: "East Slums", cost: 80, income: 40, owned: false },
+            { id: 4, name: "The Warehouse", cost: 120, income: 60, owned: false },
+            { id: 5, name: "Downtown Arena", cost: 250, income: 150, owned: false }
+        ];
+
+        function updateUI() {
+            document.getElementById('cash').innerText = `$${stats.cash}`;
+            document.getElementById('power').innerText = stats.power;
+            document.getElementById('fighters').innerText = stats.fighters;
+            renderMap();
+        }
+
+        function log(msg) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += `<div>> ${msg}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function renderMap() {
+            const mapEl = document.getElementById('map');
+            mapEl.innerHTML = '';
+            sectors.forEach(s => {
+                const div = document.createElement('div');
+                div.className = `sector ${s.owned ? 'owned' : ''}`;
+                div.innerHTML = `
+                    <strong>${s.name}</strong><br>
+                    ${s.owned ? 'OWNED' : 'Req Power: ' + s.cost}<br>
+                    <small>Income: $${s.income}/turn</small>
+                `;
+                if (!s.owned) {
+                    div.onclick = () => takeTerritory(s);
+                }
+                mapEl.appendChild(div);
+            });
+        }
+
+        function doMission() {
+            // Random rewards
+            const cashGain = Math.floor(Math.random() * 30) + 10;
+            const powerGain = Math.floor(Math.random() * 5) + 2;
+            
+            stats.cash += cashGain;
+            stats.power += powerGain;
+            
+            log(`Won a street fight! +$${cashGain}, +${powerGain} Power.`);
+            processPassiveIncome();
+            updateUI();
+        }
+
+        function recruitFighter() {
+            if (stats.cash >= 80) {
+                stats.cash -= 80;
+                stats.fighters += 1;
+                stats.power += 15;
+                log("New fighter joined. Power increased significantly.");
+                updateUI();
+            } else {
+                log("Not enough cash!");
+            }
+        }
+
+        function takeTerritory(sector) {
+            if (stats.power >= sector.cost) {
+                sector.owned = true;
+                stats.power -= 5; // Strategic cost
+                log(`Successfully seized ${sector.name}!`);
+                updateUI();
+            } else {
+                log(`Not enough power to take ${sector.name}!`);
+            }
+        }
+
+        function processPassiveIncome() {
+            let totalIncome = 0;
+            sectors.forEach(s => {
+                if (s.owned) totalIncome += s.income;
+            });
+            if (totalIncome > 0) {
+                stats.cash += totalIncome;
+                log(`Territory income: +$${totalIncome}`);
+            }
+        }
+
+        // Initialize
+        updateUI();
+
+    </script>
+</body>
+</html>
