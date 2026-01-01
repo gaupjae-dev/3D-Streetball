@@ -19,6 +19,18 @@
         #hp-fill { width: 100%; height: 100%; background: #f00; transition: 0.1s; }
         .btn-group { position: absolute; top: 20px; right: 20px; display: flex; gap: 10px; z-index: 20; }
         button { background: #222; color: #fff; border: 1px solid #444; padding: 10px; cursor: pointer; }
+
+        #minimap-container {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 200px; height: 200px; border: 2px solid #00aaff;
+            background: rgba(0,0,0,0.7); z-index: 15;
+            overflow: hidden; /* Important for the minimap canvas */
+        }
+        #weapon-display {
+            position: absolute; bottom: 20px; left: 20px; color: #00ffff;
+            background: rgba(0,0,0,0.9); padding: 10px; border-left: 5px solid #00ffff;
+            z-index: 10; font-size: 18px;
+        }
     </style>
 </head>
 <body>
@@ -28,7 +40,7 @@
         <div id="rep-display" style="color: #00aaff;">REP: 0</div>
         <div class="hp-bar"><div id="hp-fill"></div></div>
         <div id="status-text" style="color: #0ff; font-size: 12px; margin-top: 5px;">ON FOOT</div>
-        <div style="font-size: 10px; color: #555; margin-top: 10px;">WASD to move | SPACE to punch | E/F to enter/exit car</div>
+        <div style="font-size: 10px; color: #555; margin-top: 10px;">WASD to move | SPACE to punch/shoot | E/F to enter/exit car</div>
     </div>
 
     <div id="arena-ui">ARENA DUEL: ACTIVE</div>
@@ -38,6 +50,9 @@
         <button id="mapBtn">MAP</button>
     </div>
 
+    <div id="minimap-container"></div>
+    <div id="weapon-display">WEAPON: FIST</div>
+
     <script type="importmap">
         { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
     </script>
@@ -45,7 +60,7 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // --- Setup ---
+        // --- Setup Main Scene ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x020205);
         scene.fog = new THREE.Fog(0x020205, 20, 100);
@@ -59,10 +74,27 @@
         const amb = new THREE.AmbientLight(0xffffff, 0.2);
         scene.add(amb);
 
+        // --- Minimap Setup ---
+        const minimapCamera = new THREE.OrthographicCamera(
+            -100, 100, // Left, Right
+            100, -100, // Top, Bottom
+            0.1, 1000  // Near, Far
+        );
+        minimapCamera.rotation.x = -Math.PI / 2; // Look down from top
+        minimapCamera.position.y = 100; // High above the scene
+
+        const minimapRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        minimapRenderer.setSize(200, 200); // Fixed size for minimap
+        minimapRenderer.setClearColor(0x000000, 0); // Transparent background for minimap
+        document.getElementById('minimap-container').appendChild(minimapRenderer.domElement);
+
         // --- Game State ---
         let hp = 100, rep = 0, paused = false, mapMode = false, inVehicle = false, shake = 0;
-        const keys = {}, buildings = [], enemies = [];
+        const keys = {}, buildings = [], enemies = [], pickups = [];
         let vehicleVel = 0, vehicleRot = 0;
+        let currentWeapon = 'FIST'; // 'FIST' or 'PISTOL'
+        let lastShotTime = 0;
+        const shootCooldown = 0.5; // seconds between shots
 
         // --- Environment ---
         const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshStandardMaterial({ color: 0x111111 }));
@@ -71,10 +103,10 @@
 
         // Box Collisions Setup
         function checkCollision(obj, meshArray, padding = 0.5) {
-            const box = new THREE.Box3().setFromObject(obj);
+            const objBox = new THREE.Box3().setFromObject(obj);
             for (let mesh of meshArray) {
-                const otherBox = new THREE.Box3().setFromObject(mesh);
-                if (box.intersectsBox(otherBox)) return true;
+                const meshBox = new THREE.Box3().setFromObject(mesh);
+                if (objBox.intersectsBox(meshBox)) return true;
             }
             return false;
         }
@@ -90,6 +122,7 @@
         function makeB(x, z, h, w, col) {
             const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), new THREE.MeshStandardMaterial({ color: col }));
             b.position.set(x, h/2, z);
+            b.castShadow = true; // Buildings cast shadows
             scene.add(b);
             buildings.push(b);
         }
@@ -123,6 +156,7 @@
         scene.add(player);
         player.position.set(0, 0, 10);
 
+        // --- Enemies ---
         function spawnEnemy(x, z, size=1, isBoss=false) {
             const group = new THREE.Group();
             const e = new THREE.Mesh(new THREE.BoxGeometry(size, 2*size, size), new THREE.MeshStandardMaterial({ color: isBoss?0xffaa00:0xff3333 }));
@@ -143,6 +177,25 @@
         }
 
         spawnEnemy(-10, -10); spawnEnemy(10, 10);
+
+        // --- Pickups ---
+        function spawnPickup(type, x, z) {
+            let pickupMesh;
+            let color;
+            if (type === 'PISTOL') {
+                pickupMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 1), new THREE.MeshStandardMaterial({ color: 0xcccccc }));
+                color = 0xcccccc;
+            }
+            // Add other pickup types here (e.g., MEDKIT)
+            if (pickupMesh) {
+                pickupMesh.position.set(x, 0.75, z);
+                pickupMesh.userData = { type: type, originalColor: color };
+                scene.add(pickupMesh);
+                pickups.push(pickupMesh);
+            }
+        }
+        spawnPickup('PISTOL', -30, 0); // Spawn a pistol
+        spawnPickup('PISTOL', 30, 0); // Spawn another pistol
 
         // --- Logic ---
         window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
@@ -173,21 +226,58 @@
                     document.getElementById('status-text').innerText = "DRIVING";
                 }
 
-                // Punching logic
+                // Interaction / Attack
                 if (keys[' ']) {
-                    pMesh.scale.set(1.5, 0.8, 1.5);
-                    enemies.forEach((en, i) => {
-                        if (player.position.distanceTo(en.position) < 4) {
-                            en.userData.hp -= 40 * delta;
-                            shake = 0.1;
+                    if (currentWeapon === 'FIST') {
+                        pMesh.scale.set(1.5, 0.8, 1.5); // Punch animation
+                        enemies.forEach((en, i) => {
+                            if (player.position.distanceTo(en.position) < 4) {
+                                en.userData.hp -= 40 * delta;
+                                shake = 0.1;
+                            }
+                        });
+                    } else if (currentWeapon === 'PISTOL' && clock.elapsedTime - lastShotTime > shootCooldown) {
+                        lastShotTime = clock.elapsedTime;
+                        shake = 0.15; // Camera shake for shooting
+                        // Simple raycasting for shooting
+                        const raycaster = new THREE.Raycaster();
+                        // Adjust origin and direction based on player's looking direction (simplified for now)
+                        raycaster.set(player.position.clone().add(new THREE.Vector3(0,1,0)), camera.getWorldDirection(new THREE.Vector3()));
+                        const intersects = raycaster.intersectObjects(enemies, true);
+
+                        if (intersects.length > 0) {
+                            const targetEnemy = intersects[0].object.parent; // Get the enemy group
+                            if (targetEnemy && targetEnemy.userData.hp !== undefined) {
+                                targetEnemy.userData.hp -= 30; // Pistol damage
+                                // Visual feedback for hit
+                                const hitEffect = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+                                hitEffect.position.copy(intersects[0].point);
+                                scene.add(hitEffect);
+                                setTimeout(() => scene.remove(hitEffect), 100);
+                            }
                         }
-                    });
-                } else pMesh.scale.set(1, 1, 1);
+                    }
+                } else pMesh.scale.set(1, 1, 1); // Reset punch anim
+
+                // Pickup logic
+                pickups.forEach((p, i) => {
+                    if (player.position.distanceTo(p.position) < 2) {
+                        currentWeapon = p.userData.type;
+                        document.getElementById('weapon-display').innerText = "WEAPON: " + currentWeapon;
+                        scene.remove(p);
+                        pickups.splice(i, 1);
+                    }
+                });
 
                 // Arena Trigger
                 if (player.position.distanceTo(ring.position) < 6) {
                     document.getElementById('arena-ui').style.display = 'block';
-                    if (!enemies.some(e => e.userData.isBoss)) spawnEnemy(-60, 0, 2, true);
+                    if (!enemies.some(e => e.userData.isBoss)) {
+                        // Only spawn boss if no boss is present and player is in arena
+                        if (enemies.filter(e => e.userData.isBoss).length === 0) {
+                            spawnEnemy(-60, 0, 2, true);
+                        }
+                    }
                 } else document.getElementById('arena-ui').style.display = 'none';
 
             } else {
@@ -226,7 +316,7 @@
                 const dist = en.position.distanceTo(player.position);
                 // Health Bar scaling
                 en.userData.hpBar.scale.x = Math.max(0, en.userData.hp / en.userData.maxHp);
-                en.userData.hpBar.lookAt(camera.position);
+                en.userData.hpBar.lookAt(camera.position); // Always face the main camera
 
                 if (en.userData.hp <= 0) {
                     scene.remove(en);
@@ -256,10 +346,23 @@
             // UI
             document.getElementById('hp-fill').style.width = hp + "%";
             document.getElementById('rep-display').innerText = "REP: " + Math.floor(rep);
-            if (hp <= 0) { alert("WASTED - Final Rep: " + rep); location.reload(); }
+            if (hp <= 0) { alert("WASTED - Final Rep: " + Math.floor(rep)); location.reload(); }
         }
 
-        function animate() { requestAnimationFrame(animate); update(); renderer.render(scene, camera); }
+        function animate() { 
+            requestAnimationFrame(animate); 
+            update(); 
+            
+            // Render Main Scene
+            renderer.render(scene, camera);
+
+            // Render Minimap
+            // Position the minimap camera to follow the player
+            const activeObj = inVehicle ? vehicle : player;
+            minimapCamera.position.x = activeObj.position.x;
+            minimapCamera.position.z = activeObj.position.z;
+            minimapRenderer.render(scene, minimapCamera);
+        }
         animate();
 
         window.addEventListener('resize', () => {
