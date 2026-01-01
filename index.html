@@ -1,191 +1,148 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Underground: Territory War</title>
+    <meta charset="UTF-8">
+    <title>Underground 3D: Downtown</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: 'Courier New', Courier, monospace; }
-        canvas { display: block; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
         #ui { 
-            position: absolute; top: 10px; left: 10px; color: #0f0; 
-            background: rgba(0,0,0,0.7); padding: 15px; border: 1px solid #0f0;
-            pointer-events: none; text-transform: uppercase;
+            position: absolute; top: 20px; left: 20px; color: #0f0; 
+            background: rgba(0,0,0,0.8); padding: 15px; border: 2px solid #0f0;
+            pointer-events: none; z-index: 10;
         }
-        .stat-bar { width: 200px; height: 10px; background: #440000; border: 1px solid #ff0000; margin: 5px 0; }
-        #hp-fill { width: 100%; height: 100%; background: #ff0000; transition: width 0.2s; }
+        .hp-bar { width: 200px; height: 15px; background: #300; border: 1px solid #f00; margin-top: 10px; }
+        #hp-fill { width: 100%; height: 100%; background: #f00; }
     </style>
 </head>
 <body>
+
     <div id="ui">
-        <div style="font-size: 20px; font-weight: bold;">Underground: Territory War</div>
-        <div class="stat-bar"><div id="hp-fill"></div></div>
-        <div id="zone-display">Zone: Unknown</div>
-        <div id="clique-display">Clique Size: 1</div>
-        <p style="font-size: 12px; color: #aaa;">WASD to Move | SPACE to Punch</p>
+        <div style="font-size: 24px; font-weight: bold;">UNDERGROUND 3D</div>
+        <div id="location">LOCATION: DOWNTOWN</div>
+        <div class="hp-bar"><div id="hp-fill"></div></div>
+        <p>WASD to Move | SPACE to Punch</p>
     </div>
-    <canvas id="gameCanvas"></canvas>
 
-<script>
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    const hpFill = document.getElementById('hp-fill');
-
-    function resize() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    }
-    window.addEventListener('resize', resize);
-    resize();
-
-    // --- Game Objects ---
-    const player = {
-        x: 450, y: 500, size: 30, speed: 5, hp: 100, maxHp: 100,
-        isAttacking: false, attackTimer: 0, direction: 'right', color: '#00AAFF'
-    };
-
-    const clique = [
-        { x: 400, y: 500, size: 25, color: '#55CCFF', targetX: 0, targetY: 0 }
-    ];
-
-    const enemies = [
-        { x: 150, y: 150, size: 30, hp: 50, color: '#ff3333', state: 'patrol', homeX: 150, homeY: 150 },
-        { x: 250, y: 100, size: 30, hp: 50, color: '#ff3333', state: 'patrol', homeX: 250, homeY: 100 }
-    ];
-
-    const territories = [
-        { name: "The Docks (Enemy)", x: 0, y: 0, w: 400, h: 400, color: 'rgba(255, 0, 0, 0.1)' },
-        { name: "Neutral Grounds", x: 400, y: 0, w: 800, h: 1000, color: 'rgba(100, 100, 100, 0.1)' },
-        { name: "Your Turf", x: 0, y: 400, w: 400, h: 600, color: 'rgba(0, 255, 0, 0.1)' }
-    ];
-
-    const keys = {};
-    window.addEventListener('keydown', e => {
-        keys[e.key.toLowerCase()] = true;
-        if (e.code === 'Space' && !player.isAttacking) {
-            player.isAttacking = true;
-            player.attackTimer = 10;
-            checkHit();
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
         }
-    });
-    window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+    </script>
 
-    // --- Combat Logic ---
-    function checkHit() {
-        let punchX = player.x + (player.direction === 'right' ? player.size : player.direction === 'left' ? -20 : 0);
-        let punchY = player.y + (player.direction === 'down' ? player.size : player.direction === 'up' ? -20 : 0);
-        let punchSize = 25;
+    <script type="module">
+        import * as THREE from 'three';
 
-        enemies.forEach((en, index) => {
-            if (punchX < en.x + en.size && punchX + punchSize > en.x &&
-                punchY < en.y + en.size && punchY + punchSize > en.y) {
-                en.hp -= 20;
-                en.x += (player.direction === 'right' ? 20 : player.direction === 'left' ? -20 : 0);
-                en.y += (player.direction === 'down' ? 20 : player.direction === 'up' ? -20 : 0);
-                
-                if (en.hp <= 0) {
-                    enemies.splice(index, 1);
-                    // Recruit logic: When an enemy is defeated, add a new member to clique
-                    clique.push({ x: en.x, y: en.y, size: 25, color: '#55CCFF', targetX: 0, targetY: 0 });
+        // --- Setup Scene ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050505);
+        scene.fog = new THREE.Fog(0x050505, 1, 50);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0x404040, 2); 
+        scene.add(ambientLight);
+        const neonLight = new THREE.PointLight(0x00ff00, 10, 50);
+        neonLight.position.set(0, 5, 0);
+        scene.add(neonLight);
+
+        // --- The Ground ---
+        const floorGeo = new THREE.PlaneGeometry(200, 200);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        // --- Downtown: Point of Interest ---
+        function createSkyscraper(x, z, h, color) {
+            const geo = new THREE.BoxGeometry(4, h, 4);
+            const mat = new THREE.MeshStandardMaterial({ color: color });
+            const building = new THREE.Mesh(geo, mat);
+            building.position.set(x, h/2, z);
+            scene.add(building);
+
+            // Add neon windows
+            const winGeo = new THREE.BoxGeometry(4.1, 0.5, 4.1);
+            const winMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+            const windowRing = new THREE.Mesh(winGeo, winMat);
+            windowRing.position.set(x, h * 0.8, z);
+            scene.add(windowRing);
+        }
+
+        // Generate Downtown Cluster
+        for(let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2;
+            createSkyscraper(Math.cos(angle) * 15, Math.sin(angle) * 15, 10 + Math.random() * 15, 0x222222);
+        }
+
+        // --- Player ---
+        const playerGeo = new THREE.BoxGeometry(1, 2, 1);
+        const playerMat = new THREE.MeshStandardMaterial({ color: 0x00aaff });
+        const player = new THREE.Mesh(playerGeo, playerMat);
+        player.position.y = 1;
+        scene.add(player);
+
+        // --- Enemy AI ---
+        const enemyGeo = new THREE.BoxGeometry(1, 2, 1);
+        const enemyMat = new THREE.MeshStandardMaterial({ color: 0xff3333 });
+        const enemy = new THREE.Mesh(enemyGeo, enemyMat);
+        enemy.position.set(10, 1, -10);
+        scene.add(enemy);
+
+        // --- Movement Logic ---
+        const keys = {};
+        window.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+
+        const playerStats = { hp: 100, speed: 0.2 };
+
+        function update() {
+            // Move Player
+            if (keys['w']) player.position.z -= playerStats.speed;
+            if (keys['s']) player.position.z += playerStats.speed;
+            if (keys['a']) player.position.x -= playerStats.speed;
+            if (keys['d']) player.position.x += playerStats.speed;
+
+            // Combat (Space to Punch)
+            if (keys[' ']) {
+                player.scale.set(1.2, 1, 1.2); // Visual feedback for punch
+                // Check distance to enemy
+                if (player.position.distanceTo(enemy.position) < 3) {
+                    enemy.position.x += 0.5; // Knockback
                 }
+            } else {
+                player.scale.set(1, 1, 1);
             }
-        });
-    }
 
-    function update() {
-        // Player Movement
-        if (keys['w']) { player.y -= player.speed; player.direction = 'up'; }
-        if (keys['s']) { player.y += player.speed; player.direction = 'down'; }
-        if (keys['a']) { player.x -= player.speed; player.direction = 'left'; }
-        if (keys['d']) { player.x += player.speed; player.direction = 'right'; }
+            // Camera Follows Player
+            camera.position.set(player.position.x, player.position.y + 10, player.position.z + 15);
+            camera.lookAt(player.position);
 
-        // Update UI
-        hpFill.style.width = (player.hp / player.maxHp * 100) + "%";
-        document.getElementById('clique-display').innerText = `Clique Size: ${clique.length + 1}`;
-
-        // Clique Following Logic
-        clique.forEach((member, i) => {
-            let followTargetX = player.x - (25 * (i + 1) * (player.direction === 'right' ? 1 : -1));
-            let followTargetY = player.y + 10;
-            member.x += (followTargetX - member.x) * 0.08;
-            member.y += (followTargetY - member.y) * 0.08;
-        });
-
-        // Enemy AI Logic
-        enemies.forEach(en => {
-            let dist = Math.hypot(player.x - en.x, player.y - en.y);
-            if (dist < 200) { // Aggro range
-                en.x += (player.x - en.x) * 0.02;
-                en.y += (player.y - en.y) * 0.02;
-                if (dist < 35) player.hp -= 0.5; // Damage player
-            } else { // Return to patrol
-                en.x += (en.homeX - en.x) * 0.01;
-                en.y += (en.homeY - en.y) * 0.01;
+            // Simple Enemy AI (Chase)
+            if (enemy.position.distanceTo(player.position) < 15) {
+                const dir = new THREE.Vector3().subVectors(player.position, enemy.position).normalize();
+                enemy.position.addScaledVector(dir, 0.05);
             }
-        });
-
-        // Zone Detection
-        territories.forEach(zone => {
-            if (player.x > zone.x && player.x < zone.x + zone.w &&
-                player.y > zone.y && player.y < zone.y + zone.h) {
-                document.getElementById('zone-display').innerText = "Zone: " + zone.name;
-            }
-        });
-
-        if (player.isAttacking) {
-            player.attackTimer--;
-            if (player.attackTimer <= 0) player.isAttacking = false;
-        }
-        
-        if (player.hp <= 0) {
-            alert("KO'd! The rivals took over your turf.");
-            location.reload();
-        }
-    }
-
-    function draw() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // Draw Map
-        territories.forEach(zone => {
-            ctx.fillStyle = zone.color;
-            ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
-            ctx.strokeStyle = "rgba(0,255,0,0.3)";
-            ctx.strokeRect(zone.x, zone.y, zone.w, zone.h);
-        });
-
-        // Draw Enemies
-        enemies.forEach(en => {
-            ctx.fillStyle = en.color;
-            ctx.fillRect(en.x, en.y, en.size, en.size);
-            // Enemy health bar
-            ctx.fillStyle = 'red';
-            ctx.fillRect(en.x, en.y - 10, (en.hp/50) * en.size, 5);
-        });
-
-        // Draw Clique
-        clique.forEach(member => {
-            ctx.fillStyle = member.color;
-            ctx.fillRect(member.x, member.y, member.size, member.size);
-        });
-
-        // Draw Player
-        ctx.fillStyle = player.color;
-        ctx.fillRect(player.x, player.y, player.size, player.size);
-
-        if (player.isAttacking) {
-            ctx.fillStyle = "white";
-            let px = player.x + (player.direction === 'right' ? 30 : player.direction === 'left' ? -15 : 7);
-            let py = player.y + (player.direction === 'down' ? 30 : player.direction === 'up' ? -15 : 7);
-            ctx.fillRect(px, py, 15, 15);
         }
 
-        requestAnimationFrame(drawLoop);
-    }
+        function animate() {
+            requestAnimationFrame(animate);
+            update();
+            renderer.render(scene, camera);
+        }
 
-    function drawLoop() {
-        update();
-        draw();
-    }
-    drawLoop();
-</script>
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
 </body>
 </html>
