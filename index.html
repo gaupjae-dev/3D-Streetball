@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Underground 3D: The Pit</title>
+    <title>Underground 3D: The Pit (Enhanced)</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #ui { 
@@ -28,6 +28,7 @@
         <div id="rep-display" style="color: #00aaff;">REP: 0</div>
         <div class="hp-bar"><div id="hp-fill"></div></div>
         <div id="status-text" style="color: #0ff; font-size: 12px; margin-top: 5px;">ON FOOT</div>
+        <div style="font-size: 10px; color: #555; margin-top: 10px;">WASD to move | SPACE to punch | E/F to enter/exit car</div>
     </div>
 
     <div id="arena-ui">ARENA DUEL: ACTIVE</div>
@@ -46,15 +47,16 @@
 
         // --- Setup ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x05050a);
-        scene.fog = new THREE.Fog(0x05050a, 15, 90);
+        scene.background = new THREE.Color(0x020205);
+        scene.fog = new THREE.Fog(0x020205, 20, 100);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        const amb = new THREE.AmbientLight(0xffffff, 0.4);
+        const clock = new THREE.Clock();
+        const amb = new THREE.AmbientLight(0xffffff, 0.2);
         scene.add(amb);
 
         // --- Game State ---
@@ -63,37 +65,53 @@
         let vehicleVel = 0, vehicleRot = 0;
 
         // --- Environment ---
-        const floor = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshStandardMaterial({ color: 0x080808 }));
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshStandardMaterial({ color: 0x111111 }));
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
 
-        // The Boxing Ring (The Pit)
-        const ring = new THREE.Group();
-        const ringFloor = new THREE.Mesh(new THREE.BoxGeometry(10, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0x440000 }));
-        ring.add(ringFloor);
-        for(let i=0; i<4; i++) {
-            const post = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 3), new THREE.MeshStandardMaterial({ color: 0x222222 }));
-            post.position.set(i < 2 ? 4.5 : -4.5, 1.5, i % 2 === 0 ? 4.5 : -4.5);
-            ring.add(post);
+        // Box Collisions Setup
+        function checkCollision(obj, meshArray, padding = 0.5) {
+            const box = new THREE.Box3().setFromObject(obj);
+            for (let mesh of meshArray) {
+                const otherBox = new THREE.Box3().setFromObject(mesh);
+                if (box.intersectsBox(otherBox)) return true;
+            }
+            return false;
         }
+
+        // The Boxing Ring
+        const ring = new THREE.Group();
+        const ringFloor = new THREE.Mesh(new THREE.BoxGeometry(12, 0.5, 12), new THREE.MeshStandardMaterial({ color: 0x660000 }));
+        ring.add(ringFloor);
         ring.position.set(-60, 0, 0);
         scene.add(ring);
 
-        // Garage & Districts
+        // Buildings
         function makeB(x, z, h, w, col) {
             const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), new THREE.MeshStandardMaterial({ color: col }));
             b.position.set(x, h/2, z);
             scene.add(b);
             buildings.push(b);
         }
-        makeB(20, -20, 6, 15, 0x333333); // Garage
-        for(let i=0; i<15; i++) makeB(Math.random()*60-30, Math.random()*20+10, 20, 6, 0x0a0a0a); // Downtown
+        
+        makeB(20, -20, 8, 15, 0x222222); // Garage
+        for(let i=0; i<25; i++) {
+            makeB(Math.random()*150-75, Math.random()*150-75, Math.random()*30+10, 8, 0x0a0a15);
+        }
 
         // --- Vehicle ---
         const vehicle = new THREE.Group();
-        const vBody = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1, 4.5), new THREE.MeshStandardMaterial({ color: 0xffcc00 }));
-        vBody.position.y = 0.6;
+        const vBody = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1, 5), new THREE.MeshStandardMaterial({ color: 0xffcc00 }));
+        vBody.position.y = 0.7;
         vehicle.add(vBody);
+        
+        // Headlights
+        const headlight = new THREE.SpotLight(0xffffff, 50, 40, 0.5);
+        headlight.position.set(0, 1, -2.5);
+        headlight.target.position.set(0, 0, -10);
+        vehicle.add(headlight);
+        vehicle.add(headlight.target);
+
         vehicle.position.set(20, 0, -10);
         scene.add(vehicle);
 
@@ -106,12 +124,24 @@
         player.position.set(0, 0, 10);
 
         function spawnEnemy(x, z, size=1, isBoss=false) {
+            const group = new THREE.Group();
             const e = new THREE.Mesh(new THREE.BoxGeometry(size, 2*size, size), new THREE.MeshStandardMaterial({ color: isBoss?0xffaa00:0xff3333 }));
-            e.position.set(x, size, z);
-            e.userData = { hp: isBoss?300:50, isBoss };
-            scene.add(e);
-            enemies.push(e);
+            e.position.y = size;
+            group.add(e);
+
+            // Health Bar Mini
+            const hpGeo = new THREE.PlaneGeometry(2, 0.2);
+            const hpMat = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
+            const hpMesh = new THREE.Mesh(hpGeo, hpMat);
+            hpMesh.position.y = size * 2.5;
+            group.add(hpMesh);
+
+            group.position.set(x, 0, z);
+            group.userData = { hp: isBoss?300:50, maxHp: isBoss?300:50, isBoss, hpBar: hpMesh };
+            scene.add(group);
+            enemies.push(group);
         }
+
         spawnEnemy(-10, -10); spawnEnemy(10, 10);
 
         // --- Logic ---
@@ -122,93 +152,121 @@
 
         function update() {
             if (paused) return;
-
+            const delta = clock.getDelta();
             const activeObj = inVehicle ? vehicle : player;
 
             if (!inVehicle) {
                 // Foot Controls
-                const s = 0.2;
-                if (keys['w']) player.position.z -= s;
-                if (keys['s']) player.position.z += s;
-                if (keys['a']) player.position.x -= s;
-                if (keys['d']) player.position.x += s;
+                const moveS = 15 * delta;
+                const oldPos = player.position.clone();
+                
+                if (keys['w']) player.position.z -= moveS;
+                if (keys['s']) player.position.z += moveS;
+                if (keys['a']) player.position.x -= moveS;
+                if (keys['d']) player.position.x += moveS;
+
+                if (checkCollision(player, buildings)) player.position.copy(oldPos);
 
                 // Enter Car
-                if (keys['e'] && player.position.distanceTo(vehicle.position) < 4) {
+                if (keys['e'] && player.position.distanceTo(vehicle.position) < 5) {
                     inVehicle = true; player.visible = false;
                     document.getElementById('status-text').innerText = "DRIVING";
                 }
 
-                // Punching
+                // Punching logic
                 if (keys[' ']) {
-                    pMesh.scale.set(1.4, 0.8, 1.4);
+                    pMesh.scale.set(1.5, 0.8, 1.5);
                     enemies.forEach((en, i) => {
-                        if (player.position.distanceTo(en.position) < 3) {
-                            en.userData.hp -= 5;
-                            shake = 0.2;
-                            if (en.userData.hp <= 0) { scene.remove(en); enemies.splice(i, 1); rep += 50; }
+                        if (player.position.distanceTo(en.position) < 4) {
+                            en.userData.hp -= 40 * delta;
+                            shake = 0.1;
                         }
                     });
                 } else pMesh.scale.set(1, 1, 1);
 
                 // Arena Trigger
-                if (player.position.distanceTo(ring.position) < 5) {
+                if (player.position.distanceTo(ring.position) < 6) {
                     document.getElementById('arena-ui').style.display = 'block';
-                    if (enemies.filter(e => e.userData.isBoss).length === 0) spawnEnemy(-60, 0, 1.5, true);
-                } else { document.getElementById('arena-ui').style.display = 'none'; }
+                    if (!enemies.some(e => e.userData.isBoss)) spawnEnemy(-60, 0, 2, true);
+                } else document.getElementById('arena-ui').style.display = 'none';
 
             } else {
                 // Car Controls
-                if (keys['w']) vehicleVel += 0.015;
-                if (keys['s']) vehicleVel -= 0.01;
-                vehicleVel *= 0.97;
-                if (Math.abs(vehicleVel) > 0.01) {
-                    if (keys['a']) vehicleRot += 0.04;
-                    if (keys['d']) vehicleRot -= 0.04;
+                const oldCarPos = vehicle.position.clone();
+                if (keys['w']) vehicleVel += 30 * delta;
+                if (keys['s']) vehicleVel -= 15 * delta;
+                vehicleVel *= 0.98; // Friction
+
+                if (Math.abs(vehicleVel) > 0.1) {
+                    if (keys['a']) vehicleRot += 2 * delta;
+                    if (keys['d']) vehicleRot -= 2 * delta;
                 }
                 vehicle.rotation.y = vehicleRot;
-                vehicle.translateZ(-vehicleVel);
+                vehicle.translateZ(-vehicleVel * delta);
 
-                // Hit and Run Physics
-                enemies.forEach((en, i) => {
-                    if (vehicle.position.distanceTo(en.position) < 3.5 && Math.abs(vehicleVel) > 0.1) {
-                        en.userData.hp -= Math.abs(vehicleVel) * 100;
-                        en.position.addScaledVector(new THREE.Vector3().subVectors(en.position, vehicle.position).normalize(), 5);
-                        shake = 0.5;
-                        vehicleVel *= 0.5; // Impact slowdown
+                if (checkCollision(vehicle, buildings)) {
+                    vehicle.position.copy(oldCarPos);
+                    vehicleVel *= -0.5; // Bounce
+                }
+
+                // Hit and Run
+                enemies.forEach((en) => {
+                    if (vehicle.position.distanceTo(en.position) < 4 && Math.abs(vehicleVel) > 5) {
+                        en.userData.hp -= Math.abs(vehicleVel) * 0.5;
+                        en.position.addScaledVector(new THREE.Vector3().subVectors(en.position, vehicle.position).normalize(), 2);
+                        shake = 0.4;
                     }
                 });
 
-                if (keys['f']) { inVehicle = false; player.visible = true; player.position.copy(vehicle.position).x += 3; }
+                if (keys['f']) { inVehicle = false; player.visible = true; player.position.copy(vehicle.position).x += 4; }
             }
 
-            // Camera Shake & Follow
-            if (mapMode) {
-                camera.position.lerp(new THREE.Vector3(activeObj.position.x, 80, activeObj.position.z + 0.1), 0.1);
-            } else {
-                const camH = inVehicle ? 12 : 15;
-                const camD = inVehicle ? 18 : 18;
-                camera.position.lerp(new THREE.Vector3(activeObj.position.x, activeObj.position.y + camH, activeObj.position.z + camD), 0.05);
-            }
-            if (shake > 0) { camera.position.x += Math.random() * shake; shake *= 0.9; }
-            camera.lookAt(activeObj.position);
+            // Enemy AI & Clean up
+            enemies.forEach((en, i) => {
+                const dist = en.position.distanceTo(player.position);
+                // Health Bar scaling
+                en.userData.hpBar.scale.x = Math.max(0, en.userData.hp / en.userData.maxHp);
+                en.userData.hpBar.lookAt(camera.position);
 
-            // Enemy AI
-            enemies.forEach(en => {
-                const d = en.position.distanceTo(player.position);
-                if (d < 15 && !inVehicle) {
-                    en.position.addScaledVector(new THREE.Vector3().subVectors(player.position, en.position).normalize(), en.userData.isBoss ? 0.08 : 0.05);
-                    if (d < 2) hp -= en.userData.isBoss ? 0.8 : 0.2;
+                if (en.userData.hp <= 0) {
+                    scene.remove(en);
+                    enemies.splice(i, 1);
+                    rep += en.userData.isBoss ? 500 : 50;
+                    return;
+                }
+
+                if (dist < 20 && !inVehicle) {
+                    const speed = en.userData.isBoss ? 4 : 2.5;
+                    en.position.addScaledVector(new THREE.Vector3().subVectors(player.position, en.position).normalize(), speed * delta);
+                    if (dist < 2) hp -= (en.userData.isBoss ? 30 : 10) * delta;
                 }
             });
 
+            // Camera System
+            const targetPos = activeObj.position.clone();
+            if (mapMode) {
+                camera.position.lerp(new THREE.Vector3(targetPos.x, 100, targetPos.z + 1), 0.1);
+            } else {
+                const offset = inVehicle ? new THREE.Vector3(0, 15, 25) : new THREE.Vector3(0, 10, 15);
+                camera.position.lerp(targetPos.add(offset), 0.1);
+            }
+            if (shake > 0) { camera.position.x += (Math.random()-0.5) * shake; shake *= 0.9; }
+            camera.lookAt(activeObj.position);
+
+            // UI
             document.getElementById('hp-fill').style.width = hp + "%";
-            document.getElementById('rep-display').innerText = "REP: " + rep;
-            if (hp <= 0) location.reload();
+            document.getElementById('rep-display').innerText = "REP: " + Math.floor(rep);
+            if (hp <= 0) { alert("WASTED - Final Rep: " + rep); location.reload(); }
         }
 
         function animate() { requestAnimationFrame(animate); update(); renderer.render(scene, camera); }
         animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
