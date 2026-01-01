@@ -1,232 +1,82 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Underground Boxing: Clique Wars</title>
+    <title>Underground Boxing - Prototype</title>
     <style>
-        :root {
-            --bg: #1a1a1a;
-            --card: #2d2d2d;
-            --accent: #ff4757;
-            --text: #f1f2f6;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        #game-container {
-            width: 900px;
-            margin-top: 20px;
-            display: grid;
-            grid-template-columns: 300px 1fr;
-            gap: 20px;
-        }
-
-        /* Sidebar Stats */
-        .sidebar {
-            background: var(--card);
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 5px solid var(--accent);
-        }
-
-        .stat-box {
-            font-size: 1.2rem;
-            margin-bottom: 15px;
-        }
-
-        .stat-val { font-weight: bold; color: var(--accent); }
-
-        /* Map Area */
-        .map-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-        }
-
-        .sector {
-            background: #3d3d3d;
-            aspect-ratio: 1/1;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            border-radius: 8px;
-            border: 2px solid transparent;
-            transition: 0.3s;
-            cursor: pointer;
-            text-align: center;
-            padding: 10px;
-        }
-
-        .sector:hover { border-color: var(--accent); transform: scale(1.05); }
-        .owned { border-color: #2ed573; background: #1e3a29; }
-
-        /* Controls */
-        .controls {
-            grid-column: 1 / span 2;
-            background: var(--card);
-            padding: 20px;
-            border-radius: 8px;
-            display: flex;
-            justify-content: space-around;
-        }
-
-        button {
-            padding: 12px 24px;
-            font-size: 1rem;
-            background: var(--accent);
-            border: none;
-            color: white;
-            border-radius: 5px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-
-        button:disabled { background: #555; cursor: not-allowed; }
-
-        #log {
-            height: 100px;
-            overflow-y: auto;
-            background: #000;
-            padding: 10px;
-            font-family: monospace;
-            margin-top: 10px;
-            font-size: 0.9rem;
-            color: #00ff00;
-        }
+        body { margin: 0; overflow: hidden; background: #222; font-family: sans-serif; }
+        canvas { display: block; background: #333; }
+        #ui { position: absolute; top: 10px; left: 10px; color: white; pointer-events: none; }
     </style>
 </head>
 <body>
-
-    <h1>UNDERGROUND BOXING: CLIQUE WARS</h1>
-
-    <div id="game-container">
-        <div class="sidebar">
-            <h3>Your Clique</h3>
-            <div class="stat-box">Cash: <span id="cash" class="stat-val">$100</span></div>
-            <div class="stat-box">Power: <span id="power" class="stat-val">10</span></div>
-            <div class="stat-box">Fighters: <span id="fighters" class="stat-val">3</span></div>
-            <hr>
-            <div id="log">Welcome to the pits. Build your clique.</div>
-        </div>
-
-        <div class="map-grid" id="map">
-            </div>
-
-        <div class="controls">
-            <button onclick="doMission()">Run Street Fight (Earn Cash/Power)</button>
-            <button onclick="recruitFighter()">Recruit Fighter ($80)</button>
-        </div>
+    <div id="ui">
+        <h1>Underground: Territory War</h1>
+        <p>Use WASD or Arrow Keys to move.</p>
     </div>
+    <canvas id="gameCanvas"></canvas>
 
-    <script>
-        // Game State
-        let stats = {
-            cash: 100,
-            power: 10,
-            fighters: 3,
-            territory: 0
-        };
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
 
-        const sectors = [
-            { id: 0, name: "The Bus Depot", cost: 15, income: 5, owned: false },
-            { id: 1, name: "The Docks", cost: 30, income: 15, owned: false },
-            { id: 2, name: "Iron Gym", cost: 50, income: 25, owned: false },
-            { id: 3, name: "East Slums", cost: 80, income: 40, owned: false },
-            { id: 4, name: "The Warehouse", cost: 120, income: 60, owned: false },
-            { id: 5, name: "Downtown Arena", cost: 250, income: 150, owned: false }
-        ];
+    // Resize canvas to fill window
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
 
-        function updateUI() {
-            document.getElementById('cash').innerText = `$${stats.cash}`;
-            document.getElementById('power').innerText = stats.power;
-            document.getElementById('fighters').innerText = stats.fighters;
-            renderMap();
-        }
+    // Player Object
+    const player = {
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        size: 30,
+        speed: 5,
+        color: '#00AAFF'
+    };
 
-        function log(msg) {
-            const logDiv = document.getElementById('log');
-            logDiv.innerHTML += `<div>> ${msg}</div>`;
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
+    // Input Handling
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+    window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-        function renderMap() {
-            const mapEl = document.getElementById('map');
-            mapEl.innerHTML = '';
-            sectors.forEach(s => {
-                const div = document.createElement('div');
-                div.className = `sector ${s.owned ? 'owned' : ''}`;
-                div.innerHTML = `
-                    <strong>${s.name}</strong><br>
-                    ${s.owned ? 'OWNED' : 'Req Power: ' + s.cost}<br>
-                    <small>Income: $${s.income}/turn</small>
-                `;
-                if (!s.owned) {
-                    div.onclick = () => takeTerritory(s);
-                }
-                mapEl.appendChild(div);
-            });
-        }
+    function update() {
+        // Movement Logic
+        if (keys['w'] || keys['arrowup']) player.y -= player.speed;
+        if (keys['s'] || keys['arrowdown']) player.y += player.speed;
+        if (keys['a'] || keys['arrowleft']) player.x -= player.speed;
+        if (keys['d'] || keys['arrowright']) player.x += player.speed;
 
-        function doMission() {
-            // Random rewards
-            const cashGain = Math.floor(Math.random() * 30) + 10;
-            const powerGain = Math.floor(Math.random() * 5) + 2;
-            
-            stats.cash += cashGain;
-            stats.power += powerGain;
-            
-            log(`Won a street fight! +$${cashGain}, +${powerGain} Power.`);
-            processPassiveIncome();
-            updateUI();
-        }
+        // Keep player in bounds
+        if (player.x < 0) player.x = 0;
+        if (player.y < 0) player.y = 0;
+        if (player.x > canvas.width - player.size) player.x = canvas.width - player.size;
+        if (player.y > canvas.height - player.size) player.y = canvas.height - player.size;
+    }
 
-        function recruitFighter() {
-            if (stats.cash >= 80) {
-                stats.cash -= 80;
-                stats.fighters += 1;
-                stats.power += 15;
-                log("New fighter joined. Power increased significantly.");
-                updateUI();
-            } else {
-                log("Not enough cash!");
-            }
-        }
+    function draw() {
+        // Clear screen
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        function takeTerritory(sector) {
-            if (stats.power >= sector.cost) {
-                sector.owned = true;
-                stats.power -= 5; // Strategic cost
-                log(`Successfully seized ${sector.name}!`);
-                updateUI();
-            } else {
-                log(`Not enough power to take ${sector.name}!`);
-            }
-        }
+        // Draw Player
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+        
+        // Draw "Aura" to show player direction/presence
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(player.x, player.y, player.size, player.size);
 
-        function processPassiveIncome() {
-            let totalIncome = 0;
-            sectors.forEach(s => {
-                if (s.owned) totalIncome += s.income;
-            });
-            if (totalIncome > 0) {
-                stats.cash += totalIncome;
-                log(`Territory income: +$${totalIncome}`);
-            }
-        }
+        requestAnimationFrame(gameLoop);
+    }
 
-        // Initialize
-        updateUI();
+    function gameLoop() {
+        update();
+        draw();
+    }
 
-    </script>
+    gameLoop();
+</script>
 </body>
 </html>
