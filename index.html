@@ -2,210 +2,230 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Underground 3D: Clique Wars</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Underground Boxing: Clique Wars</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; }
-        #ui {
-            position: absolute; top: 20px; left: 20px; color: white;
-            background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px;
-            pointer-events: none; border-left: 5px solid #ff4757;
+        :root {
+            --bg: #1a1a1a;
+            --card: #2d2d2d;
+            --accent: #ff4757;
+            --text: #f1f2f6;
         }
-        #crosshair {
-            position: absolute; top: 50%; left: 50%;
-            width: 10px; height: 10px; background: rgba(255,255,255,0.5);
-            border-radius: 50%; transform: translate(-50%, -50%);
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
-        #instructions {
-            position: absolute; bottom: 20px; width: 100%; text-align: center;
-            color: white; background: rgba(0,0,0,0.5); padding: 10px 0;
+
+        #game-container {
+            width: 900px;
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
         }
-        .stat { font-size: 1.2rem; margin-bottom: 5px; }
-        .val { color: #ff4757; font-weight: bold; }
+
+        /* Sidebar Stats */
+        .sidebar {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 5px solid var(--accent);
+        }
+
+        .stat-box {
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+        }
+
+        .stat-val { font-weight: bold; color: var(--accent); }
+
+        /* Map Area */
+        .map-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+
+        .sector {
+            background: #3d3d3d;
+            aspect-ratio: 1/1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            transition: 0.3s;
+            cursor: pointer;
+            text-align: center;
+            padding: 10px;
+        }
+
+        .sector:hover { border-color: var(--accent); transform: scale(1.05); }
+        .owned { border-color: #2ed573; background: #1e3a29; }
+
+        /* Controls */
+        .controls {
+            grid-column: 1 / span 2;
+            background: var(--card);
+            padding: 20px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-around;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 1rem;
+            background: var(--accent);
+            border: none;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:disabled { background: #555; cursor: not-allowed; }
+
+        #log {
+            height: 100px;
+            overflow-y: auto;
+            background: #000;
+            padding: 10px;
+            font-family: monospace;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #00ff00;
+        }
     </style>
 </head>
 <body>
 
-    <div id="ui">
-        <div class="stat">Cash: <span id="cash" class="val">$100</span></div>
-        <div class="stat">Power: <span id="power" class="val">10</span></div>
-        <div class="stat">Districts: <span id="districts" class="val">0/5</span></div>
-        <div id="msg" style="margin-top:10px; color:#00ff00;">Walk into markers to act!</div>
+    <h1>UNDERGROUND BOXING: CLIQUE WARS</h1>
+
+    <div id="game-container">
+        <div class="sidebar">
+            <h3>Your Clique</h3>
+            <div class="stat-box">Cash: <span id="cash" class="stat-val">$100</span></div>
+            <div class="stat-box">Power: <span id="power" class="stat-val">10</span></div>
+            <div class="stat-box">Fighters: <span id="fighters" class="stat-val">3</span></div>
+            <hr>
+            <div id="log">Welcome to the pits. Build your clique.</div>
+        </div>
+
+        <div class="map-grid" id="map">
+            </div>
+
+        <div class="controls">
+            <button onclick="doMission()">Run Street Fight (Earn Cash/Power)</button>
+            <button onclick="recruitFighter()">Recruit Fighter ($80)</button>
+        </div>
     </div>
 
-    <div id="crosshair"></div>
-    <div id="instructions">WASD to Move | Mouse to Look | Click to Lock Pointer</div>
+    <script>
+        // Game State
+        let stats = {
+            cash: 100,
+            power: 10,
+            fighters: 3,
+            territory: 0
+        };
 
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
+        const sectors = [
+            { id: 0, name: "The Bus Depot", cost: 15, income: 5, owned: false },
+            { id: 1, name: "The Docks", cost: 30, income: 15, owned: false },
+            { id: 2, name: "Iron Gym", cost: 50, income: 25, owned: false },
+            { id: 3, name: "East Slums", cost: 80, income: 40, owned: false },
+            { id: 4, name: "The Warehouse", cost: 120, income: 60, owned: false },
+            { id: 5, name: "Downtown Arena", cost: 250, income: 150, owned: false }
+        ];
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
-
-        // --- Game Logic Stats ---
-        let stats = { cash: 100, power: 10, districts: 0 };
-        const updateUI = (msg) => {
+        function updateUI() {
             document.getElementById('cash').innerText = `$${stats.cash}`;
             document.getElementById('power').innerText = stats.power;
-            document.getElementById('districts').innerText = `${stats.districts}/5`;
-            if(msg) document.getElementById('msg').innerText = msg;
-        };
-
-        // --- Scene Setup ---
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a12);
-        scene.fog = new THREE.FogExp2(0x0a0a12, 0.05);
-
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-
-        const light = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
-        scene.add(light);
-
-        // --- Controls ---
-        const controls = new PointerLockControls(camera, document.body);
-        document.body.addEventListener('click', () => controls.lock());
-
-        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-        const onKeyDown = (e) => {
-            switch (e.code) {
-                case 'KeyW': moveForward = true; break;
-                case 'KeyS': moveBackward = true; break;
-                case 'KeyA': moveLeft = true; break;
-                case 'KeyD': moveRight = true; break;
-            }
-        };
-        const onKeyUp = (e) => {
-            switch (e.code) {
-                case 'KeyW': moveForward = false; break;
-                case 'KeyS': moveBackward = false; break;
-                case 'KeyA': moveLeft = false; break;
-                case 'KeyD': moveRight = false; break;
-            }
-        };
-        document.addEventListener('keydown', onKeyDown);
-        document.addEventListener('keyup', onKeyUp);
-
-        // --- Environment (The City) ---
-        const floorGeo = new THREE.PlaneGeometry(2000, 2000);
-        const floorMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
-        const floor = new THREE.Mesh(floorGeo, floorMat);
-        floor.rotation.x = -Math.PI / 2;
-        scene.add(floor);
-
-        // Buildings
-        const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-        for (let i = 0; i < 100; i++) {
-            const h = Math.random() * 20 + 5;
-            const bMat = new THREE.MeshPhongMaterial({ color: 0x222222 });
-            const building = new THREE.Mesh(boxGeo, bMat);
-            building.position.x = Math.floor(Math.random() * 20 - 10) * 10;
-            building.position.z = Math.floor(Math.random() * 20 - 10) * 10;
-            building.position.y = h / 2;
-            building.scale.set(8, h, 8);
-            scene.add(building);
+            document.getElementById('fighters').innerText = stats.fighters;
+            renderMap();
         }
 
-        // --- Interactive Markers ---
-        const markers = [];
-        function createMarker(x, z, type, cost) {
-            const geo = new THREE.CylinderGeometry(1, 1, 0.5, 32);
-            const color = (type === 'mission') ? 0xff4757 : 0x2e95ff;
-            const mat = new THREE.MeshBasicMaterial({ color: color, wireframe: true });
-            const marker = new THREE.Mesh(geo, mat);
-            marker.position.set(x, 0.5, z);
-            marker.userData = { type, cost, active: true };
-            scene.add(marker);
-            markers.push(marker);
+        function log(msg) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += `<div>> ${msg}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function renderMap() {
+            const mapEl = document.getElementById('map');
+            mapEl.innerHTML = '';
+            sectors.forEach(s => {
+                const div = document.createElement('div');
+                div.className = `sector ${s.owned ? 'owned' : ''}`;
+                div.innerHTML = `
+                    <strong>${s.name}</strong><br>
+                    ${s.owned ? 'OWNED' : 'Req Power: ' + s.cost}<br>
+                    <small>Income: $${s.income}/turn</small>
+                `;
+                if (!s.owned) {
+                    div.onclick = () => takeTerritory(s);
+                }
+                mapEl.appendChild(div);
+            });
+        }
+
+        function doMission() {
+            // Random rewards
+            const cashGain = Math.floor(Math.random() * 30) + 10;
+            const powerGain = Math.floor(Math.random() * 5) + 2;
             
-            // Add a light to the marker
-            const pLight = new THREE.PointLight(color, 10, 5);
-            pLight.position.set(x, 2, z);
-            scene.add(pLight);
+            stats.cash += cashGain;
+            stats.power += powerGain;
+            
+            log(`Won a street fight! +$${cashGain}, +${powerGain} Power.`);
+            processPassiveIncome();
+            updateUI();
         }
 
-        // Add some missions and territories
-        createMarker(10, 10, 'mission', 0);
-        createMarker(-15, 20, 'mission', 0);
-        createMarker(20, -10, 'territory', 25); // Needs 25 power
-        createMarker(-20, -30, 'territory', 50); // Needs 50 power
-
-        // --- Game Loop ---
-        const velocity = new THREE.Vector3();
-        const direction = new THREE.Vector3();
-        let prevTime = performance.now();
-
-        function animate() {
-            requestAnimationFrame(animate);
-
-            const time = performance.now();
-            if (controls.isLocked) {
-                const delta = (time - prevTime) / 1000;
-
-                velocity.x -= velocity.x * 10.0 * delta;
-                velocity.z -= velocity.z * 10.0 * delta;
-
-                direction.z = Number(moveForward) - Number(moveBackward);
-                direction.x = Number(moveRight) - Number(moveLeft);
-                direction.normalize();
-
-                if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
-                if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
-
-                controls.moveRight(-velocity.x * delta);
-                controls.moveForward(-velocity.z * delta);
-
-                // Collision Detection with Markers
-                markers.forEach(m => {
-                    if (!m.userData.active) return;
-                    
-                    const dist = camera.position.distanceTo(m.position);
-                    if (dist < 2) {
-                        if (m.userData.type === 'mission') {
-                            stats.cash += 20;
-                            stats.power += 5;
-                            updateUI("Mission Clear! +$20 +5 Power");
-                            m.userData.active = false;
-                            m.visible = false;
-                            // Respawn mission elsewhere later
-                            setTimeout(() => { m.visible = true; m.userData.active = true; }, 5000);
-                        } 
-                        else if (m.userData.type === 'territory') {
-                            if (stats.power >= m.userData.cost) {
-                                stats.districts++;
-                                stats.power -= 5;
-                                updateUI(`District Captured!`);
-                                m.userData.active = false;
-                                m.material.wireframe = false; // Solid when owned
-                                m.material.color.set(0x2ed573);
-                            } else {
-                                updateUI(`Need ${m.userData.cost} Power to take this!`);
-                            }
-                        }
-                    }
-                });
+        function recruitFighter() {
+            if (stats.cash >= 80) {
+                stats.cash -= 80;
+                stats.fighters += 1;
+                stats.power += 15;
+                log("New fighter joined. Power increased significantly.");
+                updateUI();
+            } else {
+                log("Not enough cash!");
             }
-
-            prevTime = time;
-            renderer.render(scene, camera);
         }
 
-        animate();
+        function takeTerritory(sector) {
+            if (stats.power >= sector.cost) {
+                sector.owned = true;
+                stats.power -= 5; // Strategic cost
+                log(`Successfully seized ${sector.name}!`);
+                updateUI();
+            } else {
+                log(`Not enough power to take ${sector.name}!`);
+            }
+        }
 
-        // Handle Resize
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+        function processPassiveIncome() {
+            let totalIncome = 0;
+            sectors.forEach(s => {
+                if (s.owned) totalIncome += s.income;
+            });
+            if (totalIncome > 0) {
+                stats.cash += totalIncome;
+                log(`Territory income: +$${totalIncome}`);
+            }
+        }
+
+        // Initialize
+        updateUI();
 
     </script>
 </body>
