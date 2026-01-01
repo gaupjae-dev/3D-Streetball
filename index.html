@@ -1,135 +1,191 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Underground Boxing - Prototype</title>
+    <title>Underground: Territory War</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #222; font-family: sans-serif; }
-        canvas { display: block; background: #333; }
-        #ui { position: absolute; top: 10px; left: 10px; color: white; pointer-events: none; }
+        body { margin: 0; overflow: hidden; background: #1a1a1a; font-family: 'Courier New', Courier, monospace; }
+        canvas { display: block; }
+        #ui { 
+            position: absolute; top: 10px; left: 10px; color: #0f0; 
+            background: rgba(0,0,0,0.7); padding: 15px; border: 1px solid #0f0;
+            pointer-events: none; text-transform: uppercase;
+        }
+        .stat-bar { width: 200px; height: 10px; background: #440000; border: 1px solid #ff0000; margin: 5px 0; }
+        #hp-fill { width: 100%; height: 100%; background: #ff0000; transition: width 0.2s; }
     </style>
 </head>
 <body>
     <div id="ui">
-        <h1>Underground: Territory War</h1>
-        <p>Use WASD or Arrow Keys to move.</p>
+        <div style="font-size: 20px; font-weight: bold;">Underground: Territory War</div>
+        <div class="stat-bar"><div id="hp-fill"></div></div>
+        <div id="zone-display">Zone: Unknown</div>
+        <div id="clique-display">Clique Size: 1</div>
+        <p style="font-size: 12px; color: #aaa;">WASD to Move | SPACE to Punch</p>
     </div>
     <canvas id="gameCanvas"></canvas>
 
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const hpFill = document.getElementById('hp-fill');
 
-function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-window.addEventListener('resize', resize);
-resize();
-
-// --- Game State & Data ---
-const player = {
-    x: 100, y: 100, size: 30, speed: 5, color: '#00AAFF',
-    isAttacking: false, attackTimer: 0, direction: 'right'
-};
-
-const myClique = [
-    { x: 80, y: 80, size: 25, color: '#55CCFF', offsetX: -40, offsetY: -40 }
-];
-
-const territories = [
-    { name: "The Docks (Enemy)", x: 0, y: 0, w: 400, h: 400, color: 'rgba(255, 0, 0, 0.2)' },
-    { name: "Neutral Grounds", x: 400, y: 0, w: 600, h: 800, color: 'rgba(100, 100, 100, 0.2)' },
-    { name: "Your Turf", x: 0, y: 400, w: 400, h: 400, color: 'rgba(0, 255, 0, 0.2)' }
-];
-
-let currentZone = "Unknown";
-
-// --- Input Handling ---
-const keys = {};
-window.addEventListener('keydown', e => {
-    keys[e.key.toLowerCase()] = true;
-    if (e.code === 'Space' && !player.isAttacking) {
-        player.isAttacking = true;
-        player.attackTimer = 10; // Punch lasts 10 frames
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
     }
-});
-window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+    window.addEventListener('resize', resize);
+    resize();
 
-function update() {
-    // Player Movement & Direction
-    if (keys['w']) { player.y -= player.speed; player.direction = 'up'; }
-    if (keys['s']) { player.y += player.speed; player.direction = 'down'; }
-    if (keys['a']) { player.x -= player.speed; player.direction = 'left'; }
-    if (keys['d']) { player.x += player.speed; player.direction = 'right'; }
+    // --- Game Objects ---
+    const player = {
+        x: 450, y: 500, size: 30, speed: 5, hp: 100, maxHp: 100,
+        isAttacking: false, attackTimer: 0, direction: 'right', color: '#00AAFF'
+    };
 
-    // Update Clique (Followers lag behind slightly for a natural feel)
-    myClique.forEach(member => {
-        member.x += (player.x + member.offsetX - member.x) * 0.1;
-        member.y += (player.y + member.offsetY - member.y) * 0.1;
-    });
+    const clique = [
+        { x: 400, y: 500, size: 25, color: '#55CCFF', targetX: 0, targetY: 0 }
+    ];
 
-    // Territory Detection
-    currentZone = "No Man's Land";
-    territories.forEach(zone => {
-        if (player.x > zone.x && player.x < zone.x + zone.w &&
-            player.y > zone.y && player.y < zone.y + zone.h) {
-            currentZone = zone.name;
+    const enemies = [
+        { x: 150, y: 150, size: 30, hp: 50, color: '#ff3333', state: 'patrol', homeX: 150, homeY: 150 },
+        { x: 250, y: 100, size: 30, hp: 50, color: '#ff3333', state: 'patrol', homeX: 250, homeY: 100 }
+    ];
+
+    const territories = [
+        { name: "The Docks (Enemy)", x: 0, y: 0, w: 400, h: 400, color: 'rgba(255, 0, 0, 0.1)' },
+        { name: "Neutral Grounds", x: 400, y: 0, w: 800, h: 1000, color: 'rgba(100, 100, 100, 0.1)' },
+        { name: "Your Turf", x: 0, y: 400, w: 400, h: 600, color: 'rgba(0, 255, 0, 0.1)' }
+    ];
+
+    const keys = {};
+    window.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        if (e.code === 'Space' && !player.isAttacking) {
+            player.isAttacking = true;
+            player.attackTimer = 10;
+            checkHit();
         }
     });
+    window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-    // Combat Logic
-    if (player.isAttacking) {
-        player.attackTimer--;
-        if (player.attackTimer <= 0) player.isAttacking = false;
-    }
-}
+    // --- Combat Logic ---
+    function checkHit() {
+        let punchX = player.x + (player.direction === 'right' ? player.size : player.direction === 'left' ? -20 : 0);
+        let punchY = player.y + (player.direction === 'down' ? player.size : player.direction === 'up' ? -20 : 0);
+        let punchSize = 25;
 
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // 1. Draw Territories
-    territories.forEach(zone => {
-        ctx.fillStyle = zone.color;
-        ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
-        ctx.fillStyle = "white";
-        ctx.fillText(zone.name, zone.x + 10, zone.y + 20);
-    });
-
-    // 2. Draw Clique
-    myClique.forEach(member => {
-        ctx.fillStyle = member.color;
-        ctx.fillRect(member.x, member.y, member.size, member.size);
-    });
-
-    // 3. Draw Player
-    ctx.fillStyle = player.color;
-    ctx.fillRect(player.x, player.y, player.size, player.size);
-
-    // 4. Draw Combat (The Punch)
-    if (player.isAttacking) {
-        ctx.fillStyle = "yellow";
-        let punchX = player.x;
-        let punchY = player.y;
-        if (player.direction === 'right') punchX += player.size;
-        if (player.direction === 'left') punchX -= 15;
-        if (player.direction === 'up') punchY -= 15;
-        if (player.direction === 'down') punchY += player.size;
-        ctx.fillRect(punchX, punchY, 15, 15);
+        enemies.forEach((en, index) => {
+            if (punchX < en.x + en.size && punchX + punchSize > en.x &&
+                punchY < en.y + en.size && punchY + punchSize > en.y) {
+                en.hp -= 20;
+                en.x += (player.direction === 'right' ? 20 : player.direction === 'left' ? -20 : 0);
+                en.y += (player.direction === 'down' ? 20 : player.direction === 'up' ? -20 : 0);
+                
+                if (en.hp <= 0) {
+                    enemies.splice(index, 1);
+                    // Recruit logic: When an enemy is defeated, add a new member to clique
+                    clique.push({ x: en.x, y: en.y, size: 25, color: '#55CCFF', targetX: 0, targetY: 0 });
+                }
+            }
+        });
     }
 
-    // 5. Update UI
-    ctx.fillStyle = "white";
-    ctx.font = "20px Arial";
-    ctx.fillText("Location: " + currentZone, 20, canvas.height - 30);
-    ctx.fillText("Action: SPACE to Punch", 20, canvas.height - 60);
+    function update() {
+        // Player Movement
+        if (keys['w']) { player.y -= player.speed; player.direction = 'up'; }
+        if (keys['s']) { player.y += player.speed; player.direction = 'down'; }
+        if (keys['a']) { player.x -= player.speed; player.direction = 'left'; }
+        if (keys['d']) { player.x += player.speed; player.direction = 'right'; }
 
-    requestAnimationFrame(drawLoop);
-}
+        // Update UI
+        hpFill.style.width = (player.hp / player.maxHp * 100) + "%";
+        document.getElementById('clique-display').innerText = `Clique Size: ${clique.length + 1}`;
 
-function drawLoop() {
-    update();
-    draw();
-}
-drawLoop();
+        // Clique Following Logic
+        clique.forEach((member, i) => {
+            let followTargetX = player.x - (25 * (i + 1) * (player.direction === 'right' ? 1 : -1));
+            let followTargetY = player.y + 10;
+            member.x += (followTargetX - member.x) * 0.08;
+            member.y += (followTargetY - member.y) * 0.08;
+        });
+
+        // Enemy AI Logic
+        enemies.forEach(en => {
+            let dist = Math.hypot(player.x - en.x, player.y - en.y);
+            if (dist < 200) { // Aggro range
+                en.x += (player.x - en.x) * 0.02;
+                en.y += (player.y - en.y) * 0.02;
+                if (dist < 35) player.hp -= 0.5; // Damage player
+            } else { // Return to patrol
+                en.x += (en.homeX - en.x) * 0.01;
+                en.y += (en.homeY - en.y) * 0.01;
+            }
+        });
+
+        // Zone Detection
+        territories.forEach(zone => {
+            if (player.x > zone.x && player.x < zone.x + zone.w &&
+                player.y > zone.y && player.y < zone.y + zone.h) {
+                document.getElementById('zone-display').innerText = "Zone: " + zone.name;
+            }
+        });
+
+        if (player.isAttacking) {
+            player.attackTimer--;
+            if (player.attackTimer <= 0) player.isAttacking = false;
+        }
+        
+        if (player.hp <= 0) {
+            alert("KO'd! The rivals took over your turf.");
+            location.reload();
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Map
+        territories.forEach(zone => {
+            ctx.fillStyle = zone.color;
+            ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
+            ctx.strokeStyle = "rgba(0,255,0,0.3)";
+            ctx.strokeRect(zone.x, zone.y, zone.w, zone.h);
+        });
+
+        // Draw Enemies
+        enemies.forEach(en => {
+            ctx.fillStyle = en.color;
+            ctx.fillRect(en.x, en.y, en.size, en.size);
+            // Enemy health bar
+            ctx.fillStyle = 'red';
+            ctx.fillRect(en.x, en.y - 10, (en.hp/50) * en.size, 5);
+        });
+
+        // Draw Clique
+        clique.forEach(member => {
+            ctx.fillStyle = member.color;
+            ctx.fillRect(member.x, member.y, member.size, member.size);
+        });
+
+        // Draw Player
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+
+        if (player.isAttacking) {
+            ctx.fillStyle = "white";
+            let px = player.x + (player.direction === 'right' ? 30 : player.direction === 'left' ? -15 : 7);
+            let py = player.y + (player.direction === 'down' ? 30 : player.direction === 'up' ? -15 : 7);
+            ctx.fillRect(px, py, 15, 15);
+        }
+
+        requestAnimationFrame(drawLoop);
+    }
+
+    function drawLoop() {
+        update();
+        draw();
+    }
+    drawLoop();
 </script>
 </body>
 </html>
