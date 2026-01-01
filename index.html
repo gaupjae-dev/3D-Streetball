@@ -3,69 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Mini-City Prototype</title>
+    <title>3D Downtown Prototype</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; }
-        canvas { display: block; }
-        
-        /* UI Overlay */
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #ui {
             position: absolute;
             top: 20px;
             left: 20px;
             color: white;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
             border-radius: 8px;
             pointer-events: none;
+            border: 1px solid #444;
         }
-
-        /* Map Button */
         #map-btn {
             position: absolute;
             bottom: 20px;
             right: 20px;
             padding: 15px 25px;
-            background: #27ae60;
+            background: #e74c3c;
             color: white;
             border: none;
-            border-radius: 50px;
+            border-radius: 5px;
             cursor: pointer;
             font-weight: bold;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 20;
         }
-
-        /* Fullscreen Map Overlay */
         #map-overlay {
             display: none;
             position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 300px;
-            height: 300 shadowy;
-            background: #333;
-            border: 5px solid white;
-            border-radius: 10px;
-            z-index: 10;
+            width: 400px;
+            height: 400px;
+            background: #222;
+            border: 3px solid #fff;
+            z-index: 100;
         }
-        
         .map-player-dot {
-            width: 10px;
-            height: 10px;
-            background: red;
+            width: 12px;
+            height: 12px;
+            background: #00ff00;
             position: absolute;
             border-radius: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px solid white;
+        }
+        .map-label {
+            color: white;
+            font-size: 10px;
+            position: absolute;
+            text-align: center;
+            width: 100%;
+            bottom: 10px;
         }
     </style>
 </head>
 <body>
 
-    <div id="ui">WASD to Move | Click "View Map" to see position</div>
-    <button id="map-btn" onclick="toggleMap()">VIEW MAP</button>
-    <div id="map-overlay" onclick="toggleMap()">
+    <div id="ui">
+        <b>DOWNTOWN DISTRICT</b><br>
+        WASD: Move<br>
+        Location: <span id="loc-display">Street</span>
+    </div>
+    
+    <button id="map-btn" onclick="toggleMap()">TOGGLE MAP</button>
+    
+    <div id="map-overlay">
         <div id="player-dot" class="map-player-dot"></div>
-        <div style="color: white; text-align: center; margin-top: 130px;">CITY MAP</div>
+        <div class="map-label">CITY MAP - ARENA CENTER</div>
     </div>
 
     <script type="importmap">
@@ -79,92 +87,155 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // --- SCENE SETUP ---
+        // --- SCENE & CAMERA ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87ceeb); // Sky blue
+        scene.background = new THREE.Color(0x1a1a2e); // Night vibe
+        scene.fog = new THREE.FogExp2(0x1a1a2e, 0.02);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // --- LIGHTING ---
-        const light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(5, 10, 7.5);
-        scene.add(light);
-        scene.add(new THREE.AmbientLight(0x404040));
+        // --- LIGHTS ---
+        const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+        sun.position.set(10, 20, 10);
+        scene.add(sun);
+        scene.add(new THREE.AmbientLight(0x4040ff, 0.3)); // Blue ambient tint
 
-        // --- WORLD OBJECTS ---
-        // Ground
-        const groundGeo = new THREE.PlaneGeometry(100, 100);
-        const groundMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+        // --- WORLD GENERATION ---
+        const collidableObjects = [];
+
+        // Ground (Grass/Foundation)
+        const groundGeo = new THREE.PlaneGeometry(200, 200);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
         const ground = new THREE.Mesh(groundGeo, groundMat);
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        // Simple Player
-        const playerGeo = new THREE.BoxGeometry(1, 2, 1);
-        const playerMat = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-        const player = new THREE.Mesh(playerGeo, playerMat);
-        player.position.y = 1;
-        scene.add(player);
+        // Streets Logic
+        function createStreet(x, z, width, length, horizontal = false) {
+            const streetGeo = new THREE.PlaneGeometry(width, length);
+            const streetMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const street = new THREE.Mesh(streetGeo, streetMat);
+            street.rotation.x = -Math.PI / 2;
+            street.position.set(x, 0.01, z); // Slightly above ground to prevent flickering
+            if (horizontal) street.rotation.z = Math.PI / 2;
+            scene.add(street);
 
-        // Some "Buildings"
-        for(let i=0; i<10; i++) {
-            const bGeo = new THREE.BoxGeometry(4, Math.random() * 10 + 2, 4);
-            const bMat = new THREE.MeshStandardMaterial({ color: 0x777777 });
-            const building = new THREE.Mesh(bGeo, bMat);
-            building.position.set(Math.random() * 40 - 20, bGeo.parameters.height/2, Math.random() * 40 - 20);
-            scene.add(building);
+            // Yellow Lines
+            const lineGeo = new THREE.PlaneGeometry(0.2, length);
+            const lineMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+            const line = new THREE.Mesh(lineGeo, lineMat);
+            line.rotation.x = -Math.PI / 2;
+            line.position.set(x, 0.02, z);
+            if (horizontal) line.rotation.z = Math.PI / 2;
+            scene.add(line);
         }
 
-        // --- MOVEMENT LOGIC ---
+        // Create Grid Streets
+        for(let i = -2; i <= 2; i++) {
+            createStreet(i * 40, 0, 10, 200);      // Vertical
+            createStreet(0, i * 40, 10, 200, true); // Horizontal
+        }
+
+        // --- DOWNTOWN ARENA ---
+        const arenaGeo = new THREE.CylinderGeometry(8, 10, 6, 32);
+        const arenaMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x111111 });
+        const arena = new THREE.Mesh(arenaGeo, arenaMat);
+        arena.position.set(0, 3, 0);
+        scene.add(arena);
+        collidableObjects.push(arena);
+
+        // --- BUILDINGS ---
+        function createBuilding(x, z) {
+            if (Math.abs(x) < 15 && Math.abs(z) < 15) return; // Don't build on the Arena
+            const h = Math.random() * 20 + 5;
+            const bGeo = new THREE.BoxGeometry(12, h, 12);
+            const bMat = new THREE.MeshStandardMaterial({ color: 0x444466 });
+            const b = new THREE.Mesh(bGeo, bMat);
+            b.position.set(x, h/2, z);
+            scene.add(b);
+            collidableObjects.push(b);
+        }
+
+        // Place buildings in blocks
+        for(let x = -80; x <= 80; x += 40) {
+            for(let z = -80; z <= 80; z += 40) {
+                createBuilding(x + 15, z + 15);
+                createBuilding(x - 15, z - 15);
+            }
+        }
+
+        // --- PLAYER ---
+        const player = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshStandardMaterial({color: 0x00ff00}));
+        body.position.y = 1;
+        player.add(body);
+        scene.add(player);
+
+        // --- MOVEMENT & COLLISION ---
         const keys = {};
         window.addEventListener('keydown', (e) => keys[e.code] = true);
         window.addEventListener('keyup', (e) => keys[e.code] = false);
 
-        const moveSpeed = 0.15;
-        const playerDot = document.getElementById('player-dot');
+        function checkCollision(newPos) {
+            const playerBB = new THREE.Box3().setFromObject(body);
+            // Offset the bounding box to the proposed new position
+            playerBB.translate(newPos.clone().sub(player.position));
 
-        function update() {
-            if (keys['KeyW']) player.position.z -= moveSpeed;
-            if (keys['KeyS']) player.position.z += moveSpeed;
-            if (keys['KeyA']) player.position.x -= moveSpeed;
-            if (keys['KeyD']) player.position.x += moveSpeed;
-
-            // Camera follows player
-            camera.position.set(player.position.x, player.position.y + 10, player.position.z + 15);
-            camera.lookAt(player.position);
-
-            // Update Map UI position (Scaling world coords to map pixels)
-            // 100 units world = 300px map
-            const mapX = (player.position.x + 50) * 3;
-            const mapY = (player.position.z + 50) * 3;
-            playerDot.style.left = `${mapX}px`;
-            playerDot.style.top = `${mapY}px`;
+            for (let obj of collidableObjects) {
+                const objBB = new THREE.Box3().setFromObject(obj);
+                if (playerBB.intersectsBox(objBB)) return true;
+            }
+            return false;
         }
 
-        // --- ANIMATION LOOP ---
+        const moveSpeed = 0.25;
+        function update() {
+            let nextPos = player.position.clone();
+            
+            if (keys['KeyW']) nextPos.z -= moveSpeed;
+            if (keys['KeyS']) nextPos.z += moveSpeed;
+            if (keys['KeyA']) nextPos.x -= moveSpeed;
+            if (keys['KeyD']) nextPos.x += moveSpeed;
+
+            // Simple Collision Check
+            if (!checkCollision(nextPos)) {
+                player.position.copy(nextPos);
+            }
+
+            // Camera follow
+            camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 15, player.position.z + 20), 0.1);
+            camera.lookAt(player.position);
+
+            // Update Map
+            const dot = document.getElementById('player-dot');
+            dot.style.left = `${(player.position.x + 100) * 2}px`; // Scale world to 400px map
+            dot.style.top = `${(player.position.z + 100) * 2}px`;
+            
+            // Location Text
+            const distToArena = player.position.distanceTo(new THREE.Vector3(0,0,0));
+            document.getElementById('loc-display').innerText = distToArena < 15 ? "DOWNTOWN ARENA" : "Main Street";
+        }
+
         function animate() {
             requestAnimationFrame(animate);
             update();
             renderer.render(scene, camera);
         }
+        animate();
 
-        // Handle Resize
+        window.toggleMap = function() {
+            const map = document.getElementById('map-overlay');
+            map.style.display = (map.style.display === 'block') ? 'none' : 'block';
+        };
+
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
-
-        animate();
-
-        // Map Toggle Global Function
-        window.toggleMap = function() {
-            const map = document.getElementById('map-overlay');
-            map.style.display = (map.style.display === 'block') ? 'none' : 'block';
-        };
     </script>
 </body>
 </html>
