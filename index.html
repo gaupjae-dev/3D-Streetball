@@ -2,42 +2,41 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Underground 3D: Downtown</title>
+    <title>Underground 3D: Clique Wars</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
         #ui { 
             position: absolute; top: 20px; left: 20px; color: #0f0; 
-            background: rgba(0,0,0,0.8); padding: 15px; border: 2px solid #0f0;
-            pointer-events: none; z-index: 10;
+            background: rgba(0,0,0,0.85); padding: 20px; border: 2px solid #0f0;
+            pointer-events: none; z-index: 10; width: 250px;
         }
-        .hp-bar { width: 200px; height: 15px; background: #300; border: 1px solid #f00; margin-top: 10px; }
-        #hp-fill { width: 100%; height: 100%; background: #f00; }
+        #mission-text { color: #ffff00; font-weight: bold; margin-top: 10px; display: none; }
+        .hp-bar { width: 100%; height: 10px; background: #300; border: 1px solid #f00; margin-top: 5px; }
+        #hp-fill { width: 100%; height: 100%; background: #f00; transition: 0.3s; }
+        #rep-display { color: #00aaff; font-size: 14px; margin-top: 5px; }
     </style>
 </head>
 <body>
 
     <div id="ui">
-        <div style="font-size: 24px; font-weight: bold;">UNDERGROUND 3D</div>
-        <div id="location">LOCATION: DOWNTOWN</div>
+        <div style="font-size: 20px;">CLANDESTINE BOXING</div>
+        <div id="rep-display">Reputation: 0</div>
         <div class="hp-bar"><div id="hp-fill"></div></div>
-        <p>WASD to Move | SPACE to Punch</p>
+        <div id="mission-text">MISSION: CLEAR THE DOWNTOWN RING!</div>
+        <p style="font-size: 11px; color: #888; margin-top: 15px;">WASD - Move | SPACE - Strike</p>
     </div>
 
     <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
-            }
-        }
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
     </script>
 
     <script type="module">
         import * as THREE from 'three';
 
-        // --- Setup Scene ---
+        // --- Core Setup ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x050505);
-        scene.fog = new THREE.Fog(0x050505, 1, 50);
+        scene.background = new THREE.Color(0x020205);
+        scene.fog = new THREE.Fog(0x020205, 5, 45);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -45,94 +44,169 @@
         document.body.appendChild(renderer.domElement);
 
         // --- Lighting ---
-        const ambientLight = new THREE.AmbientLight(0x404040, 2); 
-        scene.add(ambientLight);
-        const neonLight = new THREE.PointLight(0x00ff00, 10, 50);
-        neonLight.position.set(0, 5, 0);
-        scene.add(neonLight);
+        const amb = new THREE.AmbientLight(0x404040, 1);
+        scene.add(amb);
+        const sun = new THREE.DirectionalLight(0x4444ff, 0.5);
+        sun.position.set(5, 10, 5);
+        scene.add(sun);
 
-        // --- The Ground ---
-        const floorGeo = new THREE.PlaneGeometry(200, 200);
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        // --- Game State ---
+        let rep = 0;
+        let hp = 100;
+        let inMission = false;
+        const buildings = [];
+        const enemies = [];
+        const clique = [];
+
+        // --- Environment Creation ---
+        // Ground with a "Grid" feel
+        const floorGeo = new THREE.PlaneGeometry(200, 200, 20, 20);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x111111, wireframe: false });
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
 
-        // --- Downtown: Point of Interest ---
-        function createSkyscraper(x, z, h, color) {
-            const geo = new THREE.BoxGeometry(4, h, 4);
-            const mat = new THREE.MeshStandardMaterial({ color: color });
-            const building = new THREE.Mesh(geo, mat);
-            building.position.set(x, h/2, z);
-            scene.add(building);
+        // Create Downtown Buildings
+        function makeBuilding(x, z, h, w) {
+            const geo = new THREE.BoxGeometry(w, h, w);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a });
+            const b = new THREE.Mesh(geo, mat);
+            b.position.set(x, h/2, z);
+            scene.add(b);
+            buildings.push(b);
 
-            // Add neon windows
-            const winGeo = new THREE.BoxGeometry(4.1, 0.5, 4.1);
-            const winMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-            const windowRing = new THREE.Mesh(winGeo, winMat);
-            windowRing.position.set(x, h * 0.8, z);
-            scene.add(windowRing);
+            // Neon Trim
+            const trimGeo = new THREE.BoxGeometry(w + 0.1, 0.2, w + 0.1);
+            const trimMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+            const trim = new THREE.Mesh(trimGeo, trimMat);
+            trim.position.set(x, h - 0.5, z);
+            scene.add(trim);
         }
 
-        // Generate Downtown Cluster
-        for(let i = 0; i < 8; i++) {
-            const angle = (i / 8) * Math.PI * 2;
-            createSkyscraper(Math.cos(angle) * 15, Math.sin(angle) * 15, 10 + Math.random() * 15, 0x222222);
+        // Downtown Perimeter
+        for(let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2;
+            makeBuilding(Math.cos(angle) * 18, Math.sin(angle) * 18, 8 + Math.random() * 15, 5);
         }
 
-        // --- Player ---
-        const playerGeo = new THREE.BoxGeometry(1, 2, 1);
-        const playerMat = new THREE.MeshStandardMaterial({ color: 0x00aaff });
-        const player = new THREE.Mesh(playerGeo, playerMat);
-        player.position.y = 1;
+        // --- Points of Interest ---
+        // Mission Marker (The Ring)
+        const markerGeo = new THREE.CylinderGeometry(4, 4, 0.5, 32);
+        const markerMat = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.3 });
+        const marker = new THREE.Mesh(markerGeo, markerMat);
+        marker.position.set(0, 0.1, 0);
+        scene.add(marker);
+
+        // --- Actors ---
+        const player = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1, 1.8, 0.8), new THREE.MeshStandardMaterial({color: 0x00aaff}));
+        body.position.y = 0.9;
+        player.add(body);
         scene.add(player);
+        player.position.set(0, 0, 10);
 
-        // --- Enemy AI ---
-        const enemyGeo = new THREE.BoxGeometry(1, 2, 1);
-        const enemyMat = new THREE.MeshStandardMaterial({ color: 0xff3333 });
-        const enemy = new THREE.Mesh(enemyGeo, enemyMat);
-        enemy.position.set(10, 1, -10);
-        scene.add(enemy);
+        function spawnEnemy(x, z) {
+            const e = new THREE.Mesh(new THREE.BoxGeometry(1, 1.8, 0.8), new THREE.MeshStandardMaterial({color: 0xff3333}));
+            e.position.set(x, 0.9, z);
+            e.userData = { hp: 50 };
+            scene.add(e);
+            enemies.push(e);
+        }
 
-        // --- Movement Logic ---
+        // --- Input & Physics ---
         const keys = {};
-        window.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
-        window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-        const playerStats = { hp: 100, speed: 0.2 };
+        function checkCollision(obj, nextX, nextZ) {
+            for (let b of buildings) {
+                const bBox = new THREE.Box3().setFromObject(b);
+                const pBox = new THREE.Box3().setFromCenterAndSize(
+                    new THREE.Vector3(nextX, 1, nextZ), 
+                    new THREE.Vector3(1.2, 1.8, 1.2)
+                );
+                if (bBox.intersectsBox(pBox)) return true;
+            }
+            return false;
+        }
 
+        // --- Update Loop ---
         function update() {
-            // Move Player
-            if (keys['w']) player.position.z -= playerStats.speed;
-            if (keys['s']) player.position.z += playerStats.speed;
-            if (keys['a']) player.position.x -= playerStats.speed;
-            if (keys['d']) player.position.x += playerStats.speed;
+            let moveX = 0;
+            let moveZ = 0;
+            const speed = 0.15;
 
-            // Combat (Space to Punch)
-            if (keys[' ']) {
-                player.scale.set(1.2, 1, 1.2); // Visual feedback for punch
-                // Check distance to enemy
-                if (player.position.distanceTo(enemy.position) < 3) {
-                    enemy.position.x += 0.5; // Knockback
-                }
-            } else {
-                player.scale.set(1, 1, 1);
+            if (keys['w']) moveZ -= speed;
+            if (keys['s']) moveZ += speed;
+            if (keys['a']) moveX -= speed;
+            if (keys['d']) moveX += speed;
+
+            const nextX = player.position.x + moveX;
+            const nextZ = player.position.z + moveZ;
+
+            if (!checkCollision(player, nextX, nextZ)) {
+                player.position.x = nextX;
+                player.position.z = nextZ;
             }
 
-            // Camera Follows Player
-            camera.position.set(player.position.x, player.position.y + 10, player.position.z + 15);
+            // Camera Setup
+            camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 8, player.position.z + 10), 0.1);
             camera.lookAt(player.position);
 
-            // Simple Enemy AI (Chase)
-            if (enemy.position.distanceTo(player.position) < 15) {
-                const dir = new THREE.Vector3().subVectors(player.position, enemy.position).normalize();
-                enemy.position.addScaledVector(dir, 0.05);
+            // Mission Logic
+            const distToMarker = player.position.distanceTo(marker.position);
+            if (distToMarker < 4 && !inMission) {
+                document.getElementById('mission-text').style.display = 'block';
+                if (keys[' ']) {
+                    inMission = true;
+                    spawnEnemy(3, -3);
+                    spawnEnemy(-3, -3);
+                    spawnEnemy(0, -5);
+                }
+            }
+
+            // Combat logic
+            if (keys[' ']) {
+                body.scale.set(1.2, 1, 1.2);
+                enemies.forEach((en, i) => {
+                    if (player.position.distanceTo(en.position) < 2.5) {
+                        en.userData.hp -= 2;
+                        en.position.addScaledVector(new THREE.Vector3().subVectors(en.position, player.position).normalize(), 0.2);
+                        if (en.userData.hp <= 0) {
+                            scene.remove(en);
+                            enemies.splice(i, 1);
+                            rep += 10;
+                            document.getElementById('rep-display').innerText = `Reputation: ${rep}`;
+                        }
+                    }
+                });
+            } else {
+                body.scale.set(1, 1, 1);
+            }
+
+            // Enemy AI
+            enemies.forEach(en => {
+                const dist = en.position.distanceTo(player.position);
+                if (dist < 10) {
+                    const dir = new THREE.Vector3().subVectors(player.position, en.position).normalize();
+                    en.position.addScaledVector(dir, 0.04);
+                    if (dist < 1.5) {
+                        hp -= 0.2;
+                        document.getElementById('hp-fill').style.width = hp + "%";
+                    }
+                }
+            });
+
+            if (hp <= 0) {
+                alert("Wasted! You lost your reputation.");
+                location.reload();
             }
         }
 
         function animate() {
             requestAnimationFrame(animate);
             update();
+            marker.rotation.y += 0.02; // Rotate the mission marker
             renderer.render(scene, camera);
         }
 
