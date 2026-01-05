@@ -2,191 +2,107 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D City: Clique Wars</title>
+    <title>Our Perfect Game - Prototype</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
-        #ui { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 5px; border: 2px solid #444; }
-        #clique-selector { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; padding: 20px; text-align: center; color: white; border: 4px solid #fff; }
-        .btn { padding: 10px 20px; margin: 10px; cursor: pointer; border: none; font-weight: bold; }
-        #map-overlay { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px; background: rgba(30,30,30,0.9); border: 2px solid #fff; }
-        .dot { width: 10px; height: 10px; position: absolute; border-radius: 50%; transform: translate(-50%, -50%); border: 1px solid white; }
+        body { margin: 0; overflow: hidden; font-family: sans-serif; }
+        #map-icon {
+            position: absolute; top: 20px; right: 20px;
+            width: 80px; height: 80px;
+            background: rgba(0,0,0,0.7); border: 3px solid white;
+            border-radius: 10px; cursor: pointer; color: white;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; z-index: 10;
+        }
+        #big-map {
+            position: absolute; top: 10%; left: 10%;
+            width: 80%; height: 80%;
+            background: rgba(50, 50, 50, 0.9); border: 5px solid gold;
+            display: none; z-index: 20; border-radius: 20px;
+        }
+        #ui { position: absolute; bottom: 20px; left: 20px; color: white; pointer-events: none; }
     </style>
 </head>
 <body>
 
-<div id="clique-selector">
-    <h2>CHOOSE YOUR CLIQUE</h2>
-    <button class="btn" style="background: #2ecc71;" onclick="chooseClique('Green')">GREEN FAMILIES</button>
-    <button class="btn" style="background: #9b59b6;" onclick="chooseClique('Purple')">PURPLE BALLERS</button>
-</div>
+    <div id="map-icon" onclick="toggleMap()">MAP</div>
+    <div id="big-map" onclick="toggleMap()">
+        <h2 style="text-align:center; color:white;">WORLD MAP</h2>
+        <p style="text-align:center; color:white;">(Click anywhere to close)</p>
+    </div>
+    <div id="ui">
+        WASD to Move | Q to Punch
+    </div>
 
-<div id="ui" style="display:none;">
-    <b id="clique-name">CLIQUE: NONE</b><br>
-    TERRITORY: <span id="territory-owner">NEUTRAL</span><br>
-    <small>E: Enter/Exit Car | WASD: Move</small>
-</div>
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
 
-<div id="map-overlay"><div id="player-dot" class="dot"></div></div>
+    <script type="module">
+        import * as THREE from 'three';
 
-<script type="importmap">
-    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
-</script>
+        // 1. SETUP THE WORLD
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Sky Blue
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
 
-<script type="module">
-    import * as THREE from 'three';
+        // 2. THE GROUND (Blank Map)
+        const groundGeo = new THREE.PlaneGeometry(100, 100);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x228B22 }); // Grass Green
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        scene.add(ground);
 
-    let myClique = null;
-    let territoryOwner = 'Neutral';
-    let gameState = { mode: 'ON_FOOT', activeVehicle: null };
-    const keys = {};
-    const collidables = [];
-    const cars = [];
+        // 3. THE PLAYER (Third Person)
+        const playerGeo = new THREE.BoxGeometry(1, 2, 1);
+        const playerMat = new THREE.MeshStandardMaterial({ color: 0x0000ff });
+        const player = new THREE.Mesh(playerGeo, playerMat);
+        player.position.y = 1;
+        scene.add(player);
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x111111);
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
+        // 4. LIGHTING
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(5, 10, 7.5);
+        scene.add(light, new THREE.AmbientLight(0x404040));
 
-    // --- LIGHTS ---
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-    const sun = new THREE.DirectionalLight(0xffffff, 1);
-    sun.position.set(10, 20, 10);
-    scene.add(sun);
+        // 5. CONTROLS
+        const keys = {};
+        window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
+        window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
 
-    // --- ARENA & TERRITORY ---
-    const arenaPlatform = new THREE.Mesh(
-        new THREE.CircleGeometry(25, 32),
-        new THREE.MeshStandardMaterial({ color: 0x444444 })
-    );
-    arenaPlatform.rotation.x = -Math.PI/2;
-    arenaPlatform.position.y = 0.1;
-    scene.add(arenaPlatform);
+        function update() {
+            const speed = 0.1;
+            if (keys['w']) player.position.z -= speed;
+            if (keys['s']) player.position.z += speed;
+            if (keys['a']) player.position.x -= speed;
+            if (keys['d']) player.position.x += speed;
 
-    const arenaCenter = new THREE.Mesh(
-        new THREE.CylinderGeometry(10, 12, 8, 16),
-        new THREE.MeshStandardMaterial({ color: 0x888888 })
-    );
-    arenaCenter.position.y = 4;
-    scene.add(arenaCenter);
-    collidables.push(arenaCenter);
-
-    // --- BUILDINGS & STREETS ---
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshStandardMaterial({color: 0x222222}));
-    ground.rotation.x = -Math.PI/2;
-    scene.add(ground);
-
-    // Create a few drivable cars
-    function spawnCar(x, z) {
-        const car = new THREE.Group();
-        const body = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.5, 5), new THREE.MeshStandardMaterial({color: 0xff0000}));
-        body.position.y = 1;
-        car.add(body);
-        car.position.set(x, 0, z);
-        car.userData = { speed: 0, accel: 0.01, friction: 0.96, steer: 0.03 };
-        scene.add(car);
-        cars.push(car);
-    }
-    spawnCar(15, 15);
-    spawnCar(-15, 25);
-
-    // --- PLAYER ---
-    const player = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2, 1.5), new THREE.MeshStandardMaterial({color: 0xffffff}));
-    player.position.set(0, 1, 40);
-    scene.add(player);
-
-    // --- LOGIC ---
-    window.chooseClique = (c) => {
-        myClique = c;
-        document.getElementById('clique-selector').style.display = 'none';
-        document.getElementById('ui').style.display = 'block';
-        document.getElementById('clique-name').innerText = "CLIQUE: " + c;
-        document.getElementById('clique-name').style.color = (c === 'Green') ? '#2ecc71' : '#9b59b6';
-        player.material.color.set(c === 'Green' ? 0x2ecc71 : 0x9b59b6);
-    };
-
-    window.onkeydown = (e) => { 
-        keys[e.code] = true; 
-        if(e.code === 'KeyE') handleVehicleSwap();
-        if(e.code === 'KeyM') toggleMap();
-    };
-    window.onkeyup = (e) => keys[e.code] = false;
-
-    function handleVehicleSwap() {
-        if(gameState.mode === 'ON_FOOT') {
-            cars.forEach(car => {
-                if(player.position.distanceTo(car.position) < 6) {
-                    gameState.mode = 'DRIVING';
-                    gameState.activeVehicle = car;
-                    player.visible = false;
-                }
-            });
-        } else {
-            player.position.set(gameState.activeVehicle.position.x + 4, 1, gameState.activeVehicle.position.z);
-            player.visible = true;
-            gameState.mode = 'ON_FOOT';
-            gameState.activeVehicle = null;
-        }
-    }
-
-    function update() {
-        if(!myClique) return;
-
-        // Walking
-        if(gameState.mode === 'ON_FOOT') {
-            const speed = 0.3;
-            if(keys['KeyW']) player.position.z -= speed;
-            if(keys['KeyS']) player.position.z += speed;
-            if(keys['KeyA']) player.position.x -= speed;
-            if(keys['KeyD']) player.position.x += speed;
-        } 
-        // Driving
-        else {
-            const v = gameState.activeVehicle;
-            const stats = v.userData;
-            if(keys['KeyW']) stats.speed += stats.accel;
-            if(keys['KeyS']) stats.speed -= stats.accel;
-            stats.speed *= stats.friction;
-            
-            if(Math.abs(stats.speed) > 0.01) {
-                if(keys['KeyA']) v.rotation.y += stats.steer;
-                if(keys['KeyD']) v.rotation.y -= stats.steer;
+            // Q to Punch (Simple Scale Animation)
+            if (keys['q']) {
+                player.scale.z = 1.5; // "Arm" extends
+            } else {
+                player.scale.z = 1;
             }
-            v.position.x += Math.sin(v.rotation.y) * stats.speed;
-            v.position.z += Math.cos(v.rotation.y) * stats.speed;
-            player.position.copy(v.position);
+
+            // Camera follow (Third Person Logic)
+            camera.position.set(player.position.x, player.position.y + 4, player.position.z + 8);
+            camera.lookAt(player.position);
         }
 
-        // Camera
-        camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 20, player.position.z + 30), 0.1);
-        camera.lookAt(player.position);
-
-        // Capture Territory Logic
-        const distToCenter = player.position.distanceTo(new THREE.Vector3(0,0,0));
-        if(distToCenter < 25) {
-            territoryOwner = myClique;
-            arenaPlatform.material.color.set(myClique === 'Green' ? 0x2ecc71 : 0x9b59b6);
-            document.getElementById('territory-owner').innerText = myClique.toUpperCase();
+        function animate() {
+            requestAnimationFrame(animate);
+            update();
+            renderer.render(scene, camera);
         }
+        animate();
 
-        // Update Map
-        document.getElementById('player-dot').style.left = (player.position.x + 150) + 'px';
-        document.getElementById('player-dot').style.top = (player.position.z + 150) + 'px';
-        document.getElementById('player-dot').style.background = (myClique === 'Green' ? '#2ecc71' : '#9b59b6');
-    }
-
-    function animate() {
-        requestAnimationFrame(animate);
-        update();
-        renderer.render(scene, camera);
-    }
-    animate();
-
-    function toggleMap() {
-        const m = document.getElementById('map-overlay');
-        m.style.display = m.style.display === 'block' ? 'none' : 'block';
-    }
-</script>
+        // 6. UI LOGIC
+        window.toggleMap = function() {
+            const m = document.getElementById('big-map');
+            m.style.display = m.style.display === 'block' ? 'none' : 'block';
+        }
+    </script>
 </body>
 </html>
