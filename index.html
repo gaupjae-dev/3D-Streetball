@@ -2,35 +2,40 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Our Perfect Game - Prototype</title>
+    <title>Perfect Game - City Prototype</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #map-icon {
             position: absolute; top: 20px; right: 20px;
             width: 80px; height: 80px;
-            background: rgba(0,0,0,0.7); border: 3px solid white;
-            border-radius: 10px; cursor: pointer; color: white;
+            background: rgba(0,0,0,0.8); border: 3px solid #ffcc00;
+            border-radius: 15px; cursor: pointer; color: white;
             display: flex; align-items: center; justify-content: center;
-            font-weight: bold; z-index: 10;
+            font-weight: bold; z-index: 10; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
         #big-map {
             position: absolute; top: 10%; left: 10%;
             width: 80%; height: 80%;
-            background: rgba(50, 50, 50, 0.9); border: 5px solid gold;
-            display: none; z-index: 20; border-radius: 20px;
+            background: rgba(30, 30, 30, 0.95); border: 5px solid #ffcc00;
+            display: none; z-index: 20; border-radius: 30px; color: white;
+            text-align: center;
         }
-        #ui { position: absolute; bottom: 20px; left: 20px; color: white; pointer-events: none; }
+        #ui { position: absolute; bottom: 20px; left: 20px; color: white; text-shadow: 2px 2px 4px black; pointer-events: none; }
     </style>
 </head>
 <body>
 
     <div id="map-icon" onclick="toggleMap()">MAP</div>
     <div id="big-map" onclick="toggleMap()">
-        <h2 style="text-align:center; color:white;">WORLD MAP</h2>
-        <p style="text-align:center; color:white;">(Click anywhere to close)</p>
+        <h1 style="margin-top:50px;">WORLD MAP</h1>
+        <div style="width: 100px; height: 100px; background: grey; margin: 50px auto; border: 2px solid white;"></div>
+        <h3>THE CITY</h3>
+        <p>(Tap anywhere to close)</p>
     </div>
+    
     <div id="ui">
-        WASD to Move | Q to Punch
+        <b>Controls:</b> WASD to Move | Q to Punch<br>
+        <b>GPS:</b> Follow the Yellow Line to The City
     </div>
 
     <script type="importmap">
@@ -40,54 +45,66 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // 1. SETUP THE WORLD
+        // 1. SETUP
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB); // Sky Blue
+        scene.background = new THREE.Color(0x87CEEB);
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // 2. THE GROUND (Blank Map)
-        const groundGeo = new THREE.PlaneGeometry(100, 100);
-        const groundMat = new THREE.MeshStandardMaterial({ color: 0x228B22 }); // Grass Green
-        const ground = new THREE.Mesh(groundGeo, groundMat);
+        // 2. WORLD & BUILDING
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x2ecc71 }));
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        // 3. THE PLAYER (Third Person)
-        const playerGeo = new THREE.BoxGeometry(1, 2, 1);
-        const playerMat = new THREE.MeshStandardMaterial({ color: 0x0000ff });
-        const player = new THREE.Mesh(playerGeo, playerMat);
-        player.position.y = 1;
+        // The Skyscraper (The City)
+        const buildingGeo = new THREE.BoxGeometry(10, 50, 10);
+        const buildingMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+        const building = new THREE.Mesh(buildingGeo, buildingMat);
+        building.position.set(0, 25, 0); // Center of the map
+        scene.add(building);
+
+        // 3. PLAYER
+        const player = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshStandardMaterial({ color: 0x3498db }));
+        player.position.set(30, 1, 30); // Start away from the building
         scene.add(player);
 
-        // 4. LIGHTING
-        const light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(5, 10, 7.5);
+        // 4. GPS LINE
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 5 });
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
+        const gpsLine = new THREE.Line(lineGeo, lineMat);
+        scene.add(gpsLine);
+
+        // 5. LIGHTING
+        const light = new THREE.DirectionalLight(0xffffff, 1.5);
+        light.position.set(10, 20, 10);
         scene.add(light, new THREE.AmbientLight(0x404040));
 
-        // 5. CONTROLS
+        // 6. LOGIC
         const keys = {};
         window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
         window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
 
         function update() {
-            const speed = 0.1;
+            const speed = 0.15;
             if (keys['w']) player.position.z -= speed;
             if (keys['s']) player.position.z += speed;
             if (keys['a']) player.position.x -= speed;
             if (keys['d']) player.position.x += speed;
 
-            // Q to Punch (Simple Scale Animation)
-            if (keys['q']) {
-                player.scale.z = 1.5; // "Arm" extends
-            } else {
-                player.scale.z = 1;
-            }
+            // Q Punch
+            player.scale.z = keys['q'] ? 1.8 : 1;
 
-            // Camera follow (Third Person Logic)
-            camera.position.set(player.position.x, player.position.y + 4, player.position.z + 8);
+            // Update GPS Line (From Player to Building)
+            const points = [
+                new THREE.Vector3(player.position.x, 0.2, player.position.z),
+                new THREE.Vector3(0, 0.2, 0)
+            ];
+            gpsLine.geometry.setFromPoints(points);
+
+            // Camera
+            camera.position.set(player.position.x, player.position.y + 5, player.position.z + 10);
             camera.lookAt(player.position);
         }
 
@@ -98,11 +115,10 @@
         }
         animate();
 
-        // 6. UI LOGIC
-        window.toggleMap = function() {
+        window.toggleMap = () => {
             const m = document.getElementById('big-map');
             m.style.display = m.style.display === 'block' ? 'none' : 'block';
-        }
+        };
     </script>
 </body>
 </html>
