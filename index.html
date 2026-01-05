@@ -5,185 +5,184 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Streetball Hoopz</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #1a1a1a;
-            color: white;
-            font-family: 'Arial Black', sans-serif;
-            overflow: hidden;
-        }
-
-        #game-container {
-            position: relative;
-            width: 800px;
-            height: 600px;
-            border: 4px solid #ff8c00;
-            background-color: #000;
-            box-shadow: 0 0 20px rgba(255, 140, 0, 0.5);
-        }
-
-        canvas {
-            display: block;
-        }
-
-        .menu-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            background: rgba(0, 0, 0, 0.85);
-        }
-
-        h1 {
-            font-size: 64px;
-            color: #ff8c00;
-            margin-bottom: 50px;
-            text-shadow: 3px 3px #fff;
-            letter-spacing: 2px;
-        }
-
-        .menu-options {
-            list-style: none;
-            padding: 0;
-            text-align: center;
-        }
-
-        .option {
-            font-size: 32px;
-            margin: 20px;
-            cursor: pointer;
-            transition: 0.2s;
-            color: #888;
-        }
-
-        .option.selected {
-            color: #ffffff;
-            transform: scale(1.2);
-        }
-
-        .option.selected::before {
-            content: '> ';
-            color: #ff8c00;
-        }
-
-        .hidden {
-            display: none;
-        }
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #1a1a1a; color: white; font-family: 'Arial Black', sans-serif; overflow: hidden; }
+        #game-container { position: relative; width: 800px; height: 600px; border: 4px solid #ff8c00; background: #000; }
+        canvas { display: block; }
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0, 0, 0, 0.9); }
+        h1 { font-size: 48px; color: #ff8c00; margin-bottom: 30px; text-shadow: 2px 2px #fff; }
+        .option { font-size: 28px; margin: 15px; cursor: pointer; color: #888; transition: 0.2s; list-style: none; }
+        .option.selected { color: #fff; transform: scale(1.1); }
+        .option.selected::before { content: '🏀 '; }
+        .hidden { display: none; }
+        .controls-hint { position: absolute; bottom: 20px; color: #666; font-size: 14px; }
     </style>
 </head>
 <body>
 
 <div id="game-container">
-    <div id="main-menu" class="menu-overlay">
+    <div id="menu-main" class="overlay">
         <h1>STREETBALL HOOPZ</h1>
-        <ul class="menu-options">
-            <li class="option selected" id="opt-0">QUICK PLAY</li>
-            <li class="option" id="opt-1">CAREER MODE</li>
-        </ul>
-        <p style="margin-top: 40px; color: #555;">Use Arrow Keys to Navigate & Enter to Select</p>
+        <div class="option selected" id="m-0">QUICK PLAY</div>
+        <div class="option" id="m-1">CAREER MODE</div>
+    </div>
+
+    <div id="menu-team" class="overlay hidden">
+        <h1>SELECT YOUR TEAM</h1>
+        <div class="option selected" id="t-0">LOS ANGELES POPPAS</div>
+        <div class="option" id="t-1">NEW YORK LEGENDS</div>
     </div>
 
     <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div class="controls-hint">WASD to Move | SPACE to Shoot | ESC to Menu</div>
 </div>
 
 <script>
-    const mainMenu = document.getElementById('main-menu');
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    let currentOption = 0;
-    const totalOptions = 2;
-    let gameState = 'MENU'; // MENU, QUICK_PLAY, CAREER
+    // Game States
+    let state = 'MAIN_MENU';
+    let menuIdx = 0;
+    let selectedTeam = "";
 
-    // Keyboard Listeners
-    window.addEventListener('keydown', (e) => {
-        if (gameState === 'MENU') {
-            if (e.key === 'ArrowUp') {
-                updateMenuSelection(-1);
-            } else if (e.key === 'ArrowDown') {
-                updateMenuSelection(1);
-            } else if (e.key === 'Enter') {
-                selectOption();
-            }
-        } else if (e.key === 'Escape') {
-            returnToMenu();
-        }
+    // Player & Ball Physics
+    const player = { x: 100, y: 500, w: 30, h: 50, color: '#ff8c00', speed: 5 };
+    const ball = { x: 0, y: 0, radius: 8, vx: 0, vy: 0, active: false, gravity: 0.25 };
+    const hoop = { x: 700, y: 250, w: 50, h: 10 };
+    let score = 0;
+
+    // Input Handling
+    const keys = {};
+    window.addEventListener('keydown', e => {
+        keys[e.code] = true;
+        handleNavigation(e.code);
     });
+    window.addEventListener('keyup', e => keys[e.code] = false);
 
-    function updateMenuSelection(direction) {
-        // Remove selection from current
-        document.getElementById(`opt-${currentOption}`).classList.remove('selected');
-        
-        // Calculate new selection
-        currentOption = (currentOption + direction + totalOptions) % totalOptions;
-        
-        // Add selection to new
-        document.getElementById(`opt-${currentOption}`).classList.add('selected');
-    }
-
-    function selectOption() {
-        mainMenu.classList.add('hidden');
-        if (currentOption === 0) {
-            gameState = 'QUICK_PLAY';
-            startGame();
-        } else {
-            gameState = 'CAREER';
-            startGame();
+    function handleNavigation(code) {
+        if (state === 'MAIN_MENU') {
+            if (code === 'ArrowUp') menuIdx = 0;
+            if (code === 'ArrowDown') menuIdx = 1;
+            updateMenuVisuals('m', 2);
+            if (code === 'Enter') {
+                if (menuIdx === 0) { state = 'TEAM_SELECT'; menuIdx = 0; }
+                showOverlay();
+            }
+        } 
+        else if (state === 'TEAM_SELECT') {
+            if (code === 'ArrowUp') menuIdx = 0;
+            if (code === 'ArrowDown') menuIdx = 1;
+            updateMenuVisuals('t', 2);
+            if (code === 'Enter') {
+                selectedTeam = menuIdx === 0 ? "LA POPPAS" : "NY LEGENDS";
+                state = 'PLAYING';
+                document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
+            }
+        }
+        else if (code === 'Escape') {
+            state = 'MAIN_MENU';
+            showOverlay();
         }
     }
 
-    function returnToMenu() {
-        gameState = 'MENU';
-        mainMenu.classList.remove('hidden');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    function updateMenuVisuals(prefix, count) {
+        for(let i=0; i<count; i++) {
+            document.getElementById(`${prefix}-${i}`).classList.toggle('selected', i === menuIdx);
+        }
     }
 
-    function startGame() {
-        requestAnimationFrame(gameLoop);
+    function showOverlay() {
+        document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
+        if (state === 'MAIN_MENU') document.getElementById('menu-main').classList.remove('hidden');
+        if (state === 'TEAM_SELECT') document.getElementById('menu-team').classList.remove('hidden');
     }
 
-    function gameLoop() {
-        if (gameState === 'MENU') return;
+    function update() {
+        if (state !== 'PLAYING') return;
 
-        // Clear Canvas
-        ctx.fillStyle = "#333"; // Asphalt color
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Player Movement (WASD)
+        if (keys['KeyW'] && player.y > 350) player.y -= player.speed;
+        if (keys['KeyS'] && player.y < 550) player.y += player.speed;
+        if (keys['KeyA'] && player.x > 50) player.x -= player.speed;
+        if (keys['KeyD'] && player.x < 750) player.x += player.speed;
 
-        // Draw Court Lines
-        ctx.strokeStyle = "white";
-        ctx.lineWidth = 5;
-        ctx.strokeRect(50, 50, 700, 500);
-        
-        // Draw HUD
-        ctx.fillStyle = "white";
-        ctx.font = "20px Arial";
-        ctx.fillText(`MODE: ${gameState.replace('_', ' ')}`, 20, 30);
-        ctx.fillText("Press ESC to Quit", 620, 30);
+        // Shooting (Space)
+        if (keys['Space'] && !ball.active) {
+            ball.active = true;
+            ball.x = player.x + 15;
+            ball.y = player.y;
+            ball.vx = 7; // Horizontal power
+            ball.vy = -12; // Vertical jump power
+        }
 
-        // Placeholder for Player
-        ctx.fillStyle = "#ff8c00";
-        ctx.beginPath();
-        ctx.arc(400, 450, 20, 0, Math.PI * 2);
-        ctx.fill();
+        if (ball.active) {
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+            ball.vy += ball.gravity;
 
-        ctx.fillStyle = "white";
-        ctx.font = "16px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText("Gameplay logic goes here!", 400, 300);
+            // Check Score
+            if (ball.x > hoop.x && ball.x < hoop.x + hoop.w && ball.y > hoop.y && ball.y < hoop.y + 20 && ball.vy > 0) {
+                score++;
+                resetBall();
+            }
 
-        requestAnimationFrame(gameLoop);
+            // Floor or Wall reset
+            if (ball.y > 600 || ball.x > 800) resetBall();
+        }
     }
+
+    function resetBall() {
+        ball.active = false;
+        ball.vx = 0; ball.vy = 0;
+    }
+
+    function draw() {
+        ctx.fillStyle = '#222';
+        ctx.fillRect(0, 0, 800, 600);
+
+        if (state === 'PLAYING') {
+            // Court
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(50, 350, 700, 200);
+
+            // Hoop
+            ctx.fillStyle = 'red';
+            ctx.fillRect(hoop.x, hoop.y, hoop.w, hoop.h);
+            ctx.strokeStyle = 'white';
+            ctx.strokeRect(hoop.x + 45, hoop.y - 100, 5, 100); // Backboard pole
+
+            // Player
+            ctx.fillStyle = (selectedTeam === "LA POPPAS") ? "#fdb927" : "#006bb6";
+            ctx.fillRect(player.x, player.y, player.w, player.h);
+            
+            // Ball
+            if (ball.active) {
+                ctx.fillStyle = '#ff8c00';
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2);
+                ctx.fill();
+            } else {
+                // Ball in hand
+                ctx.fillStyle = '#ff8c00';
+                ctx.beginPath();
+                ctx.arc(player.x + 35, player.y + 10, 6, 0, Math.PI*2);
+                ctx.fill();
+            }
+
+            // UI
+            ctx.fillStyle = "white";
+            ctx.font = "20px Arial";
+            ctx.fillText(`TEAM: ${selectedTeam}`, 20, 40);
+            ctx.fillText(`SCORE: ${score}`, 20, 70);
+        }
+        requestAnimationFrame(() => {
+            update();
+            draw();
+        });
+    }
+
+    draw();
 </script>
-
 </body>
 </html>
