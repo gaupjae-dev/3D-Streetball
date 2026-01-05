@@ -3,35 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Streetball Hoopz</title>
+    <title>Streetball Hoopz: Pro Edition</title>
     <style>
-        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #111; color: white; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
-        #game-container { position: relative; width: 800px; height: 600px; border: 5px solid #444; background: #000; overflow: hidden; }
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #0a0a0a; color: white; font-family: 'Courier New', monospace; overflow: hidden; }
+        #game-container { position: relative; width: 800px; height: 600px; border: 4px solid #333; background: #000; }
         canvas { display: block; }
-        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0, 0, 0, 0.9); z-index: 10; }
-        h1 { font-size: 50px; color: #ff8c00; margin-bottom: 30px; text-transform: uppercase; letter-spacing: 5px; }
-        .option { font-size: 24px; margin: 10px; cursor: pointer; color: #555; list-style: none; }
-        .option.selected { color: #fff; border-bottom: 2px solid #ff8c00; }
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.9); z-index: 10; }
+        h1 { font-size: 50px; color: #ff8c00; text-shadow: 0 0 10px #ff8c00; margin-bottom: 20px; }
+        .option { font-size: 24px; margin: 10px; cursor: pointer; color: #666; transition: 0.3s; }
+        .option.selected { color: #fff; transform: scale(1.2); }
         .hidden { display: none; }
-
-        /* Scoreboard Styling */
+        
         #scoreboard {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            background: #222;
-            padding: 10px 20px;
-            border: 2px solid #ff8c00;
-            display: flex;
-            gap: 20px;
-            align-items: center;
-            border-radius: 5px;
-            box-shadow: 0 0 15px rgba(255,140,0,0.3);
+            position: absolute; bottom: 20px; right: 20px; background: #222; padding: 15px;
+            border: 2px solid #ff8c00; display: flex; gap: 20px; border-radius: 5px;
         }
         .score-box { text-align: center; }
-        .label { font-size: 10px; color: #888; margin-bottom: 2px; }
-        .value { font-size: 28px; font-weight: bold; color: #fff; }
-        #shot-clock { color: #ff3333; font-size: 32px; min-width: 40px; text-align: center; border-left: 1px solid #444; padding-left: 15px; }
+        .label { font-size: 10px; color: #888; }
+        .value { font-size: 24px; font-weight: bold; }
+        #shot-clock { color: #ff3333; font-size: 30px; border-left: 1px solid #444; padding-left: 15px; }
+        
+        #power-bar-container {
+            position: absolute; left: 20px; bottom: 20px; width: 30px; height: 150px;
+            border: 2px solid #fff; background: rgba(255,255,255,0.1); display: none;
+        }
+        #power-fill { position: absolute; bottom: 0; width: 100%; background: #ff8c00; transition: height 0.05s; }
     </style>
 </head>
 <body>
@@ -40,26 +36,22 @@
     <div id="menu-main" class="overlay">
         <h1>STREETBALL HOOPZ</h1>
         <div class="option selected" id="m-0">QUICK PLAY</div>
-        <div class="option" id="m-1">CAREER MODE</div>
+        <div class="option" id="m-1">CAREER MODE (LVL 1)</div>
     </div>
 
     <div id="menu-team" class="overlay hidden">
-        <h1>SELECT TEAM</h1>
-        <div class="option selected" id="t-0">LOS ANGELES POPPAS</div>
-        <div class="option" id="t-1">NEW YORK LEGENDS</div>
+        <h1>SELECT SQUAD</h1>
+        <div class="option selected" id="t-0">LA POPPAS</div>
+        <div class="option" id="t-1">NY LEGENDS</div>
     </div>
 
     <canvas id="gameCanvas" width="800" height="600"></canvas>
 
+    <div id="power-bar-container"><div id="power-fill" style="height: 0%"></div></div>
+
     <div id="scoreboard" class="hidden">
-        <div class="score-box">
-            <div class="label">YOU</div>
-            <div id="player-score" class="value">00</div>
-        </div>
-        <div class="score-box">
-            <div class="label">OPP</div>
-            <div id="opp-score" class="value">00</div>
-        </div>
+        <div class="score-box"><div class="label">YOU</div><div id="p-score" class="value">00</div></div>
+        <div class="score-box"><div class="label">CPU</div><div id="c-score" class="value">00</div></div>
         <div id="shot-clock">24</div>
     </div>
 </div>
@@ -68,187 +60,171 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
+    // Game Control
     let state = 'MAIN_MENU';
     let menuIdx = 0;
-    let selectedTeam = "";
-
-    // Stats
     let scorePlayer = 0;
-    let scoreOpp = 0;
+    let scoreCPU = 0;
     let shotClock = 24;
-    let lastTime = 0;
     let clockTimer = 0;
+    let lastTime = 0;
+
+    // Shooting Mechanics
+    let isCharging = false;
+    let chargePower = 0;
 
     // Entities
-    const player = { x: 150, y: 450, w: 35, h: 60, speed: 5, color: '#ff8c00' };
-    const ball = { x: 0, y: 0, radius: 9, vx: 0, vy: 0, active: false, gravity: 0.3 };
-    const hoop = { x: 680, y: 220, w: 60, h: 8 };
+    const player = { x: 100, y: 450, w: 35, h: 60, color: '#fdb927', speed: 5 };
+    const cpu = { x: 500, y: 450, w: 35, h: 60, color: '#ff3333', speed: 3 };
+    const ball = { x: 0, y: 0, radius: 9, vx: 0, vy: 0, active: false, gravity: 0.35 };
+    const rim = { x: 680, y: 220, w: 55, h: 8 };
 
     const keys = {};
     window.addEventListener('keydown', e => {
         keys[e.code] = true;
-        handleInput(e.code);
+        if (state !== 'PLAYING') handleMenu(e.code);
+        if (e.code === 'Escape') location.reload();
     });
-    window.addEventListener('keyup', e => keys[e.code] = false);
+    window.addEventListener('keyup', e => {
+        if (e.code === 'Space' && isCharging) shoot();
+        keys[e.code] = false;
+    });
 
-    function handleInput(code) {
-        if (state === 'MAIN_MENU') {
-            if (code === 'ArrowUp') menuIdx = 0;
-            if (code === 'ArrowDown') menuIdx = 1;
-            updateMenu('m', 2);
-            if (code === 'Enter') {
-                state = 'TEAM_SELECT'; 
+    function handleMenu(code) {
+        let count = state === 'MAIN_MENU' ? 2 : 2;
+        let prefix = state === 'MAIN_MENU' ? 'm' : 't';
+        
+        if (code === 'ArrowUp') menuIdx = (menuIdx - 1 + count) % count;
+        if (code === 'ArrowDown') menuIdx = (menuIdx + 1) % count;
+        
+        updateMenuVisuals(prefix, count);
+
+        if (code === 'Enter') {
+            if (state === 'MAIN_MENU') {
+                state = 'TEAM_SELECT';
                 menuIdx = 0;
-                showOverlay();
-            }
-        } 
-        else if (state === 'TEAM_SELECT') {
-            if (code === 'ArrowUp') menuIdx = 0;
-            if (code === 'ArrowDown') menuIdx = 1;
-            updateMenu('t', 2);
-            if (code === 'Enter') {
-                selectedTeam = menuIdx === 0 ? "LA POPPAS" : "NY LEGENDS";
-                player.color = (menuIdx === 0) ? "#fdb927" : "#006bb6";
+            } else {
+                player.color = menuIdx === 0 ? '#fdb927' : '#006bb6';
                 state = 'PLAYING';
                 document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
                 document.getElementById('scoreboard').classList.remove('hidden');
-                resetShotClock();
             }
-        }
-        else if (code === 'Escape') {
-            location.reload(); // Quick reset to main menu
+            showOverlay();
         }
     }
 
-    function updateMenu(prefix, count) {
-        for(let i=0; i<count; i++) {
-            document.getElementById(`${prefix}-${i}`).classList.toggle('selected', i === menuIdx);
-        }
+    function updateMenuVisuals(prefix, count) {
+        for(let i=0; i<count; i++) document.getElementById(`${prefix}-${i}`).classList.toggle('selected', i === menuIdx);
     }
 
     function showOverlay() {
-        document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
         if (state === 'MAIN_MENU') document.getElementById('menu-main').classList.remove('hidden');
         if (state === 'TEAM_SELECT') document.getElementById('menu-team').classList.remove('hidden');
     }
 
-    function resetShotClock() {
-        shotClock = 24;
-        clockTimer = 0;
+    function shoot() {
+        isCharging = false;
+        ball.active = true;
+        ball.x = player.x + 20;
+        ball.y = player.y;
+        ball.vx = (chargePower / 10) + 2; 
+        ball.vy = -(chargePower / 5) - 5;
+        chargePower = 0;
+        document.getElementById('power-bar-container').style.display = 'none';
     }
 
     function update(timestamp) {
         if (state !== 'PLAYING') return;
-
-        // Delta time for Shot Clock
-        if (!lastTime) lastTime = timestamp;
         let dt = timestamp - lastTime;
         lastTime = timestamp;
 
+        // Shot Clock
         if (!ball.active) {
             clockTimer += dt;
-            if (clockTimer >= 1000) {
-                shotClock--;
-                clockTimer = 0;
+            if (clockTimer >= 1000) { shotClock--; clockTimer = 0; }
+            if (shotClock <= 0) { resetBall(); shotClock = 24; scoreCPU++; }
+        }
+
+        // Player Move & Charge
+        if (!ball.active) {
+            if (keys['KeyW'] && player.y > 300) player.y -= player.speed;
+            if (keys['KeyS'] && player.y < 520) player.y += player.speed;
+            if (keys['KeyA'] && player.x > 20) player.x -= player.speed;
+            if (keys['KeyD'] && player.x < 600) player.x += player.speed;
+            
+            if (keys['Space']) {
+                isCharging = true;
+                document.getElementById('power-bar-container').style.display = 'block';
+                chargePower = Math.min(chargePower + 1.5, 100);
+                document.getElementById('power-fill').style.height = chargePower + '%';
             }
         }
 
-        if (shotClock <= 0) {
-            resetShotClock();
-            resetBall(); // Turnover!
-        }
+        // CPU Defender AI
+        let targetX = ball.active ? ball.x - 20 : player.x + 60;
+        if (cpu.x < targetX) cpu.x += cpu.speed;
+        if (cpu.x > targetX) cpu.x -= cpu.speed;
+        cpu.y = player.y; // Follow player depth
 
-        // Movement
-        if (keys['KeyW'] && player.y > 300) player.y -= player.speed;
-        if (keys['KeyS'] && player.y < 520) player.y += player.speed;
-        if (keys['KeyA'] && player.x > 20) player.x -= player.speed;
-        if (keys['KeyD'] && player.x < 600) player.x += player.speed;
-
-        // Shooting
-        if (keys['Space'] && !ball.active) {
-            ball.active = true;
-            ball.x = player.x + 20;
-            ball.y = player.y;
-            ball.vx = 8 + (player.x / 150); // Power scales slightly with distance
-            ball.vy = -14;
-        }
-
+        // Ball Physics & Rim Bouncing
         if (ball.active) {
             ball.x += ball.vx;
             ball.y += ball.vy;
             ball.vy += ball.gravity;
 
-            // Collision with hoop
-            if (ball.x > hoop.x && ball.x < hoop.x + hoop.w && 
-                ball.y > hoop.y && ball.y < hoop.y + 15 && ball.vy > 0) {
-                scorePlayer += 2;
-                resetBall();
-                resetShotClock();
+            // Rim Collision Logic (Flaw Fixed)
+            if (Math.abs(ball.y - rim.y) < 10 && ball.x > rim.x && ball.x < rim.x + rim.w) {
+                if (ball.x > rim.x + 10 && ball.x < rim.x + 45) { // Swish Zone
+                    scorePlayer += 2;
+                    resetBall();
+                    shotClock = 24;
+                } else { // Hit Rim
+                    ball.vx *= -0.5;
+                    ball.vy *= -0.5;
+                }
             }
 
-            // Reset ball if it hits ground or goes out
-            if (ball.y > 600 || ball.x > 800) {
-                resetBall();
+            // Blocked by CPU
+            if (Math.abs(ball.x - cpu.x) < 20 && Math.abs(ball.y - cpu.y) < 40 && ball.vy < 0) {
+                ball.vx = -2;
+                ball.vy = 2;
             }
+
+            if (ball.y > 600 || ball.x > 800 || ball.x < 0) resetBall();
         }
 
-        // Update UI
-        document.getElementById('player-score').innerText = scorePlayer.toString().padStart(2, '0');
-        document.getElementById('opp-score').innerText = scoreOpp.toString().padStart(2, '0');
+        document.getElementById('p-score').innerText = scorePlayer.toString().padStart(2, '0');
+        document.getElementById('c-score').innerText = scoreOpp.toString().padStart(2, '0');
         document.getElementById('shot-clock').innerText = shotClock;
     }
 
-    function resetBall() {
-        ball.active = false;
-        ball.vx = 0; ball.vy = 0;
-    }
+    function resetBall() { ball.active = false; ball.vx = 0; ball.vy = 0; isCharging = false; }
 
     function draw() {
-        // Clear background
         ctx.fillStyle = '#111';
         ctx.fillRect(0, 0, 800, 600);
-
         if (state === 'PLAYING') {
-            // Draw Ground (Asphalt)
-            ctx.fillStyle = '#333';
-            ctx.fillRect(0, 300, 800, 300);
+            ctx.fillStyle = '#222'; ctx.fillRect(0, 300, 800, 300); // Court
+            ctx.strokeStyle = '#444'; ctx.strokeRect(50, 350, 700, 200); // Lines
             
-            // Court Lines
-            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-            ctx.lineWidth = 4;
-            ctx.strokeRect(50, 350, 700, 200);
+            // Hoop & Backboard
+            ctx.fillStyle = '#555'; ctx.fillRect(rim.x + 50, rim.y - 100, 10, 400); 
+            ctx.fillStyle = 'red'; ctx.fillRect(rim.x, rim.y, rim.w, rim.h);
 
-            // Backboard & Hoop
-            ctx.fillStyle = '#fff';
-            ctx.fillRect(hoop.x + hoop.w - 5, hoop.y - 80, 5, 150); // Pole
-            ctx.fillStyle = 'red';
-            ctx.fillRect(hoop.x, hoop.y, hoop.w, hoop.h); // Rim
-
-            // Player
-            ctx.fillStyle = player.color;
-            ctx.fillRect(player.x, player.y, player.w, player.h);
-            ctx.fillStyle = 'black'; // Head/Details
-            ctx.fillRect(player.x + 10, player.y + 5, 15, 15);
+            // Players
+            ctx.fillStyle = player.color; ctx.fillRect(player.x, player.y, player.w, player.h);
+            ctx.fillStyle = cpu.color; ctx.fillRect(cpu.x, cpu.y, cpu.w, cpu.h);
             
             // Ball
             ctx.fillStyle = '#ff8c00';
             if (ball.active) {
-                ctx.beginPath();
-                ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2);
-                ctx.fill();
+                ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2); ctx.fill();
             } else {
-                ctx.beginPath();
-                ctx.arc(player.x + player.w + 5, player.y + 20, 7, 0, Math.PI*2);
-                ctx.fill();
+                ctx.beginPath(); ctx.arc(player.x + player.w, player.y + 15, 7, 0, Math.PI*2); ctx.fill();
             }
         }
-
-        requestAnimationFrame((t) => {
-            update(t);
-            draw();
-        });
+        requestAnimationFrame((t) => { update(t); draw(); });
     }
-
     draw();
 </script>
 </body>
